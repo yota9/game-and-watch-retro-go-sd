@@ -142,6 +142,17 @@ void wdog_refresh(void);
 #define BTN_B_Pin GPIO_PIN_5
 #define BTN_B_GPIO_Port GPIOD
 
+#if SD_CARD != 0
+#  define GPIO_OSPI_NCS_Pin GPIO_PIN_11
+#  define GPIO_OSPI_NCS_GPIO_Port GPIOE
+#  define GPIO_OSPI_MOSI_Pin GPIO_PIN_1
+#  define GPIO_OSPI_MOSI_GPIO_Port GPIOB
+#  define GPIO_OSPI_CLK_Pin GPIO_PIN_2
+#  define GPIO_OSPI_CLK_GPIO_Port GPIOB
+#  define GPIO_OSPI_MISO_Pin GPIO_PIN_12
+#  define GPIO_OSPI_MISO_GPIO_Port GPIOD
+#endif // SD_CARD
+
 // Zelda only buttons; they are not connected on mario.
 #define BTN_START_Pin GPIO_PIN_11
 #define BTN_START_GPIO_Port GPIOC

@@ -598,8 +598,7 @@ void SystemClock_Config(void)
   }
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_LTDC
                               |RCC_PERIPHCLK_SPI2|RCC_PERIPHCLK_SAI1
-                              |RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_OSPI
-                              |RCC_PERIPHCLK_CKPER;
+                              |RCC_PERIPHCLK_ADC |RCC_PERIPHCLK_CKPER;
   PeriphClkInitStruct.PLL2.PLL2M = 25;
   PeriphClkInitStruct.PLL2.PLL2N = 192;
   PeriphClkInitStruct.PLL2.PLL2P = 5;
@@ -616,7 +615,10 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
   PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
   PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
+#if SD_CARD == 0
+  PeriphClkInitStruct.PeriphClockSelection |= RCC_PERIPHCLK_OSPI;
   PeriphClkInitStruct.OspiClockSelection = RCC_OSPICLKSOURCE_CLKP;
+#endif // !SD_CARD
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_CLKP;
@@ -649,9 +651,11 @@ void SystemClock_Config(void)
   */
 static void MX_NVIC_Init(void)
 {
+#if SD_CARD == 0
   /* OCTOSPI1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(OCTOSPI1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(OCTOSPI1_IRQn);
+#endif // !SD_CARD
 }
 
 /**
@@ -883,6 +887,7 @@ static void MX_OCTOSPI1_Init(void)
 {
 
   /* USER CODE BEGIN OCTOSPI1_Init 0 */
+#if SD_CARD == 0
 
   /* USER CODE END OCTOSPI1_Init 0 */
 
@@ -921,7 +926,7 @@ static void MX_OCTOSPI1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN OCTOSPI1_Init 2 */
-
+#endif // !SD_CARD
   /* USER CODE END OCTOSPI1_Init 2 */
 
 }
@@ -1184,6 +1189,10 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_SET);
+#if SD_CARD != 0
+  HAL_GPIO_WritePin(GPIOB, GPIO_OSPI_MOSI_Pin|GPIO_OSPI_CLK_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, GPIO_OSPI_NCS_Pin, GPIO_PIN_SET);
+#endif // SD_CARD
 
   /*Configure GPIO pin Output Level */
   /* E8=CE_n USB Charger  */ 
@@ -1242,6 +1251,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
+#if SD_CARD != 0
+  /*Configure GPIO pin : GPIO_OSPI_NCS_Pin */
+  GPIO_InitStruct.Pin = GPIO_OSPI_NCS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIO_OSPI_NCS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : GPIO_OSPI_MOSI_Pin GPIO_OSPI_CLK_Pin */
+  GPIO_InitStruct.Pin = GPIO_OSPI_MOSI_Pin|GPIO_OSPI_CLK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+#endif // SD_CARD
+
   /*Configure GPIO pin : PB12 */
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -1260,6 +1286,9 @@ static void MX_GPIO_Init(void)
                            BTN_Up_Pin BTN_B_Pin */
   GPIO_InitStruct.Pin = BTN_A_Pin|BTN_Left_Pin|BTN_Down_Pin|BTN_Right_Pin
                           |BTN_Up_Pin|BTN_B_Pin;
+#if SD_CARD != 0
+  GPIO_InitStruct.Pin |= GPIO_OSPI_MISO_Pin;
+#endif // SD_CARD
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
@@ -1302,6 +1331,15 @@ void MPU_Config(void)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+#if SD_CARD != 0
+  /* Make sd card region non accessible */
+  MPU_InitStruct.BaseAddress = (uintptr_t)&__EXTFLASH_BASE__;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_256MB;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+#endif // SD_CARD
 
   if (__builtin_popcount((size_t)&__NULLPTR_LENGTH__) == 1) {
     /* Only continue if a single bit set in __NULLPTR_LENGTH__.

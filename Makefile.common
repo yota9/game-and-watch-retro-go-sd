@@ -15,6 +15,9 @@ CHECK_TOOLS ?= 1
 # Set to 1 to enable 16MB external flash support. (deprecated, use EXTFLASH_SIZE_MB instead!)
 LARGE_FLASH ?= 0
 
+# Set to 1 to enable sd card support instead of flash
+SD_CARD ?= 0
+
 # Configure where data is stored in the external flash by
 # setting EXTFLASH_OFFSET. Useful if the first 1MB are to be preserved.
 EXTFLASH_OFFSET ?= 0
@@ -92,7 +95,13 @@ PYTHON3 ?= /usr/bin/env python3
 # Build path
 BUILD_DIR ?= build
 
-
+ifeq ($(SD_CARD),0)
+C_SOURCES += Core/Src/gw_flash.c
+else
+C_SOURCES += \
+  Core/Src/gw_sd.c \
+  Core/src/softspi.c
+endif
 
 # Common C sources
 C_SOURCES +=  \
@@ -269,6 +278,7 @@ C_DEFS +=  \
 -DDEBUG_RG_ALLOC \
 -DSTATE_SAVING=$(STATE_SAVING) \
 -DENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT) \
+-DSD_CARD=$(SD_CARD)
 -DGNW_TARGET_MARIO=$(GNW_TARGET_MARIO) \
 -DGNW_TARGET_ZELDA=$(GNW_TARGET_ZELDA)
 
@@ -485,7 +495,7 @@ $(BUILD_DIR):
 #######################################
 
 OPENOCD ?= openocd
-ADAPTER ?= stlink
+ADAPTER ?= jlink
 FLASH_MULTI ?= scripts/flash_multi.sh
 FLASHTEST ?= scripts/flashapp.sh --test
 
@@ -545,7 +555,11 @@ flash_intflash_nc: $(BUILD_DIR)/$(TARGET)_intflash.bin
 .PHONY: flashx
 
 flash_extflash: $(BUILD_DIR)/$(TARGET)_extflash.bin
-	$(FLASH_MULTI) $(BUILD_DIR)/$(TARGET)_extflash.bin $(EXTFLASH_OFFSET)
+ifeq ($(SD_CARD),0)
+	$(FLASH_MULTI) $< $(EXTFLASH_OFFSET)
+else
+	dd if=$< of=$(SD_CARD) bs=512 seek=$$(($(EXTFLASH_OFFSET) / 512))
+endif
 .PHONY: flash_extflash
 
 flash_test: flash_intflash
@@ -555,7 +569,7 @@ flash_test: flash_intflash
 # Programs both the external and internal flash.
 flash: CheckTools CheckDirtySubmodules
 	$(V)$(MAKE) flash_intflash
-	$(V)$(MAKE) flash_extflash
+#	$(V)$(MAKE) flash_extflash
 	$(V)$(RESET_DBGMCU_CMD)
 .PHONY: flash
 
@@ -630,6 +644,7 @@ help:
 	@echo "  EXTFLASH_SIZE_MB    - Sets the external flash size in megabytes"
 	@echo "  EXTFLASH_SIZE       - Sets the external flash size in bytes (has precedence over EXTFLASH_SIZE_MB)"
 	@echo "  LARGE_FLASH         - Sets the external flash size to 16MB  (deprecated)"
+	@echo "  SD_CARD             - Use SD card instead of flash, pass /path/to/sdcard device if flashing"
 	@echo "  EXTFLASH_OFFSET     - Places the data at an offset in the external flash (useful for dual boot)"
 	@echo "  INTFLASH_BANK       - Sets the internal flash bank. Valid values {1,2} (default=1)."
 	@echo "  COMPRESS            - Configures ROM compression, Valid values {0,lz4,zopfli,lzma} (default=lzma)."
@@ -644,6 +659,7 @@ help:
 	@echo "  EXTFLASH_SIZE_MB=$(EXTFLASH_SIZE_MB)"
 	@echo "  EXTFLASH_SIZE=$(EXTFLASH_SIZE)"
 	@echo "  LARGE_FLASH=$(LARGE_FLASH)"
+	@echo "  SD_CARD=$(SD_CARD)"
 	@echo "  EXTFLASH_OFFSET=$(EXTFLASH_OFFSET)"
 	@echo "  INTFLASH_BANK=$(INTFLASH_BANK)"
 	@echo "  COMPRESS=$(COMPRESS)"

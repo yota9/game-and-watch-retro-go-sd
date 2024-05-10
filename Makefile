@@ -17,7 +17,6 @@ endif
 C_SOURCES =  \
 Core/Src/bilinear.c \
 Core/Src/gw_buttons.c \
-Core/Src/gw_flash.c \
 Core/Src/gw_lcd.c \
 Core/Src/main.c \
 Core/Src/sha256.c \
