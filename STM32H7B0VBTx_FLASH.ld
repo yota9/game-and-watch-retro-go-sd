@@ -208,9 +208,6 @@ SECTIONS
   ._extflash :
   {
     . = ALIGN(4);
-    __extflash_nes_start__ = .;
-    build/core/logo*.o (.text .text* .rodata .rodata*)
-    . = ALIGN(4);
     build/core/header*.o (.text .text* .rodata .rodata*)
     . = ALIGN(4);
     __extflash_end_start__ = .;
