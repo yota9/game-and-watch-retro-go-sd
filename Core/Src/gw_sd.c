@@ -12,47 +12,188 @@
 
 #define DBG(...) printf(__VA_ARGS__)
 
-#define GO_IDLE_STATE 0x0
-#define SEND_OP_COND 0x1
+#ifndef MIN
+#define MIN(a,b) ({__typeof__(a) _a = (a); __typeof__(b) _b = (b);_a < _b ? _a : _b; })
+#endif // !MIN
 
-#define RESPONSE_OK 0x0
-#define RESPONSE_IN_IDLE_STATE 0x1
+#define BLOCK_SIZE 512ULL
+
+#include "gw_linker.h"
+static const uint32_t SD_BASE_ADDRESS = (uint32_t)&__EXTFLASH_START__;
 
 static struct {
     SoftSPI spi[1];
+    bool isSdV2 : 1;
+    bool ccs : 1;
 } sd = {
     .spi[0] = {
         .sck = { .port = GPIO_OSPI_CLK_GPIO_Port, .pin = GPIO_OSPI_CLK_Pin },
         .mosi = { .port = GPIO_OSPI_MOSI_GPIO_Port, .pin = GPIO_OSPI_MOSI_Pin },
         .miso = { .port = GPIO_OSPI_MISO_GPIO_Port, .pin = GPIO_OSPI_MISO_Pin },
-        .cs = { .port = NULL, .pin = 0 },
+        .cs = { .port = GPIO_OSPI_NCS_GPIO_Port, .pin = GPIO_OSPI_NCS_Pin },
         .DelayUs = 20
     }
 };
 
-static uint8_t __send_cmd(uint8_t cmd, uint32_t arg) {
-    const uint8_t crc = 0x95; // Only used for GO_IDLE_STATE cmd
-    uint8_t spi_cmd_payload[6] = {cmd | 0x40, arg >> 24, arg >> 16, arg >> 8, arg, crc};
-    uint64_t tmp = ~0;
+// =============================================================================
+// SD card responses
+// =============================================================================
 
-    SoftSpi_WriteRead(sd.spi, spi_cmd_payload, NULL, sizeof(spi_cmd_payload));
-    SoftSpi_WriteRead(sd.spi, (uint8_t *)&tmp, (uint8_t *)&tmp, sizeof(tmp));
+typedef bool (*response_fn)(uint8_t *r);
 
-    for (uint8_t i = 0; i < 8; ++i)
-        if (((uint8_t *)&tmp)[i] != 0xFF)
-            return ((uint8_t *)&tmp)[i];
+#define R1_IDLE 0ULL
+#define R1_ERASE_RESET 1ULL
+#define R1_ILLEGAL_COMMAND 2ULL
+#define R1_CRC_ERROR 3ULL
+#define R1_ERASE_SEQUENCE_ERROR 4ULL
+#define R1_ADDRESS_ERROR 5ULL
+#define R1_PARAMETER_ERROR 6ULL
+#define R1_ALWAYS_ZERO 7ULL
 
-    return 0xFF;
+static bool responseR1(uint8_t *r) {
+    *r = 0xFF;
+    for (int i = 0; i < 10 && *r == 0xFF; ++i)
+        SoftSpi_WriteDummyRead(sd.spi, r, sizeof(*r));
+
+    return *r != 0xFF;
 }
 
-static void send_cmd(uint8_t cmd, uint32_t arg, uint8_t response) {
+#define R2_CARD_LOCKED 0ULL
+#define R2_WP_ERASE_SKIP 1ULL
+#define R2_ERROR 2ULL
+#define R2_CC_ERROR 3ULL
+#define R2_CARD_ECC_FAILED 4ULL
+#define R2_WP_VIOLATION 5ULL
+#define R2_ERASE_PARAM 6ULL
+#define R2_OUT_OF_RANGE 7ULL
+
+#define R2_GET_R1(r) (((uint8_t *)r)[1])
+
+__attribute__((unused))
+static bool responseR2(uint8_t *r) {
+    if (!responseR1((uint8_t *)&(R2_GET_R1(r))))
+        return false;
+
+    SoftSpi_WriteDummyRead(sd.spi, &r[0], sizeof(*r));
+    return !r[1] || r[1] == (1 << R1_IDLE);
+}
+
+#define R3_V27_28 15ULL
+#define R3_V28_29 16ULL
+#define R3_V29_30 17ULL
+#define R3_V30_31 18ULL
+#define R3_V31_32 19ULL
+#define R3_V32_33 20ULL
+#define R3_V33_34 21ULL
+#define R3_V34_35 22ULL
+#define R3_V35_36 23ULL
+#define R3_V18 24ULL
+#define R3_UHS2 29ULL
+#define R3_CCS 30ULL
+#define R3_READY 31ULL
+
+#define R3R7_GET_R1(r) (((uint8_t *)r)[4])
+
+static bool responseR3R7(uint8_t *r) {
+    if (!responseR1(&(R3R7_GET_R1(r))))
+        return false;
+
+    SoftSpi_WriteDummyRead(sd.spi, &r[3], sizeof(*r));
+    SoftSpi_WriteDummyRead(sd.spi, &r[2], sizeof(*r));
+    SoftSpi_WriteDummyRead(sd.spi, &r[1], sizeof(*r));
+    SoftSpi_WriteDummyRead(sd.spi, &r[0], sizeof(*r));
+    return !r[4] || r[4] == (1 << R1_IDLE);
+}
+
+static bool responseCMD8(uint8_t *r) {
+    if (responseR3R7(r))
+        return true;
+
+    // Old v1 sd card, fault is expected
+    if (r[4] & (1 << R1_ILLEGAL_COMMAND))
+        return true;
+
+    return false;
+}
+
+struct response {
+    uint64_t r0;
+};
+
+// =============================================================================
+// SD card commands
+// =============================================================================
+
+#define SD_GO_IDLE_STATE_CMD 0
+#define SD_SEND_INTERFACE_COND_CMD 8
+#define SD_READ_SINGLE_BLOCK_CMD 17
+#define SD_SEND_OP_COND_ACMD 41
+#define SD_APP_CMD 55
+#define SD_READ_OCR_CMD 58
+
+enum cmd_list {
+    GO_IDLE_STATE = 0,
+    SEND_INTERFACE_COND,
+    READ_SINGLE_BLOCK,
+    SEND_OP_COND_ACMD,
+    APP_CMD,
+    READ_OCR,
+};
+
+struct sd_cmd {
+    uint8_t cmd;
+    uint8_t crc;
+    response_fn response;
+} sd_cmds[] = {
+    [GO_IDLE_STATE] = { SD_GO_IDLE_STATE_CMD, 0x95, responseR1 },
+    [SEND_INTERFACE_COND] = { SD_SEND_INTERFACE_COND_CMD, 0x86, responseCMD8 },
+    [READ_SINGLE_BLOCK] = { SD_READ_SINGLE_BLOCK_CMD, 0x0, responseR1 },
+    [SEND_OP_COND_ACMD] = { SD_SEND_OP_COND_ACMD, 0x0, responseR1 },
+    [APP_CMD] = { SD_APP_CMD, 0x0, responseR1 },
+    [READ_OCR] = { SD_READ_OCR_CMD, 0x0, responseR3R7 },
+};
+
+// =============================================================================
+
+static void __send_cmd_payload(uint8_t cmd, uint32_t arg, uint32_t crc) {
+    uint8_t spi_cmd_payload[6] = {cmd | 0x40, arg >> 24, arg >> 16, arg >> 8, arg, crc | 0x1};
+    SoftSpi_WriteRead(sd.spi, spi_cmd_payload, NULL, sizeof(spi_cmd_payload));
+    wdog_refresh();
+}
+
+static bool __send_cmd(enum cmd_list cmd, uint32_t arg, struct response *response) {
+    __send_cmd_payload(sd_cmds[cmd].cmd, arg, sd_cmds[cmd].crc);
+    return sd_cmds[cmd].response((uint8_t *)response);
+}
+
+static struct response send_cmd(enum cmd_list cmd, uint32_t arg) {
+    struct response response = {};
     for (int i = 0; i < 255; i++) {
-        if (__send_cmd(cmd, arg) == response)
-            return;
+        if (__send_cmd(cmd, arg, &response))
+            return response;
     }
 
     printf("SD: Failed to send cmd %d\n", cmd);
     abort();
+}
+
+static void send_read_cmd(uint32_t addr) {
+    uint8_t ret;
+
+    assert((addr & (BLOCK_SIZE - 1)) == 0 && "Address is not aligned");
+    addr -= SD_BASE_ADDRESS;
+    if (sd.ccs)
+        addr /= BLOCK_SIZE;
+
+    if (send_cmd(READ_SINGLE_BLOCK, addr).r0) {
+        printf("SD: Failed to send read cmd\n");
+        abort();
+    }
+
+    // We would fail on watchdog if somthing is wrong here
+    do {
+        SoftSpi_WriteDummyRead(sd.spi, &ret, 1);
+    } while(ret != 0xFE);
 }
 
 void OSPI_EnableMemoryMappedMode(void) {}
@@ -66,6 +207,67 @@ void OSPI_ReadJedecId(uint8_t dest[3]) {
     dest[0] = 0;
     dest[1] = 0;
     dest[2] = 0;
+}
+
+void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
+    uint8_t *buffer = (uint8_t *)pbuffer;
+    const uint32_t start_address = address & ~(BLOCK_SIZE - 1);
+
+    if (!buffer_size)
+        return;
+
+#define SKIP_CHECKSUM() \
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 1); \
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 1)
+
+    // Read first unaligned block
+    if (address != start_address) {
+        send_read_cmd(start_address);
+
+        // Skip bytes before target address
+        SoftSpi_WriteDummyRead(sd.spi, NULL, address - start_address);
+
+        // Read buffer size or remaining bytes in block
+        const uint32_t next_block = start_address + BLOCK_SIZE;
+        const uint32_t bytes_to_read = MIN(buffer_size, next_block - address);
+        SoftSpi_WriteDummyRead(sd.spi, buffer, bytes_to_read);
+        buffer += bytes_to_read;
+        buffer_size -= bytes_to_read;
+        address += bytes_to_read;
+
+        // Skip remaining bytes if buffer_size is 0
+        SoftSpi_WriteDummyRead(sd.spi, NULL, next_block - address);
+        address = next_block;
+
+        SKIP_CHECKSUM();
+    }
+
+    // Read data in blocks
+    while (buffer_size >= BLOCK_SIZE) {
+        send_read_cmd(address);
+        address += BLOCK_SIZE;
+
+        SoftSpi_WriteDummyRead(sd.spi, buffer, BLOCK_SIZE);
+        buffer += BLOCK_SIZE;
+        buffer_size -= BLOCK_SIZE;
+
+        SKIP_CHECKSUM();
+    }
+
+    // Read remaining bytes
+    if (buffer_size) {
+        const uint32_t next_block = address + BLOCK_SIZE;
+        send_read_cmd(address);
+        SoftSpi_WriteDummyRead(sd.spi, buffer, buffer_size);
+        address += buffer_size;
+
+        // Skip remaining bytes
+        SoftSpi_WriteDummyRead(sd.spi, NULL, next_block - address);
+
+        SKIP_CHECKSUM();
+    }
+
+#undef SKIP_CHECKSUM
 }
 
 void OSPI_ChipErase(void) {
@@ -90,15 +292,50 @@ void OSPI_Program(uint32_t address, const uint8_t *buffer, size_t buffer_size) {
 }
 
 void OSPI_Init(OSPI_HandleTypeDef *hospi) {
-    uint8_t tmp = 0xFF;
-    for (int i = 0; i < 10; i++)
-        SoftSpi_WriteRead(sd.spi, &tmp, NULL, 1);
+    struct response response;
+    int i;
 
-    sd.spi->cs.port = GPIO_OSPI_NCS_GPIO_Port;
-    sd.spi->cs.pin = GPIO_OSPI_NCS_Pin;
+    SoftSpi_WriteDummyReadCsLow(sd.spi, NULL, 10);
 
-    send_cmd(GO_IDLE_STATE, /* arg */ 0, RESPONSE_IN_IDLE_STATE);
-    send_cmd(SEND_OP_COND, /* arg */ 0, RESPONSE_OK);
+    response = send_cmd(GO_IDLE_STATE, 0);
+    if (response.r0 != (1 << R1_IDLE)) {
+        printf("SD: Go idle state failed\n");
+        printf("Probably SD card is removed\n");
+        abort();
+    }
 
-    sd.spi->DelayUs = 2; // TODO probably set 0?
+    // 3.3V + AA pattern
+    response = send_cmd(SEND_INTERFACE_COND, 0x1AA);
+    sd.isSdV2 = !(R3R7_GET_R1(&response) == (1 << R1_ILLEGAL_COMMAND));
+
+    // Needed by manual
+    send_cmd(READ_OCR, 0);
+
+    for (i = 0; i < 255; i++) {
+        response = send_cmd(APP_CMD, 0);
+        if (response.r0 && response.r0 != (1 << R1_IDLE))
+            continue;
+
+        // High capacity card support
+        response = send_cmd(SEND_OP_COND_ACMD, 0x40000000);
+        if (!response.r0)
+            break;
+    }
+
+    if (i == 255) {
+        printf("SD: Failed to initialize\n");
+        abort();
+    }
+
+    if (sd.isSdV2) {
+        response = send_cmd(READ_OCR, 0);
+        if (!(response.r0 & (1 << R3_READY))) {
+            printf("SD: Not ready\n");
+            abort();
+        }
+
+        sd.ccs = response.r0 & (1 << R3_CCS);
+    }
+
+    sd.spi->DelayUs = 0;
 }

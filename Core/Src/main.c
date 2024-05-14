@@ -222,6 +222,12 @@ int _write(int file, char *ptr, int len)
 void store_erase(const uint8_t *flash_ptr, uint32_t size)
 {
   // Only allow addresses in the areas meant for erasing and writing.
+  printf(__FUNCTION__);
+  //TODO
+#if SD_CARD != 0
+  return;
+#endif
+
   assert(
     ((flash_ptr >= &__SAVEFLASH_START__)   && ((flash_ptr + size) <= &__SAVEFLASH_END__)) ||
     ((flash_ptr >= &__configflash_start__) && ((flash_ptr + size) <= &__configflash_end__)) ||
@@ -247,7 +253,9 @@ void store_erase(const uint8_t *flash_ptr, uint32_t size)
 void store_save(const uint8_t *flash_ptr, const uint8_t *data, size_t size)
 {
   // Temporary solution to make things work with flash with 256K erase pages
-#ifdef DISABLE_STORE
+    printf(__FUNCTION__);
+    //TODO
+#if defined(DISABLE_STORE) || SD_CARD != 0
   return;
 #endif
 
@@ -494,6 +502,12 @@ int main(void)
   copy_areas[0] = &_siramdata;  // 0x90000000
   copy_areas[1] = &__ram_exec_start__;  // 0x24000000
   copy_areas[2] = &__ram_exec_end__;  // 0x24000000 + length
+#if SD_CARD != 0
+  if (copy_areas[2] - copy_areas[1]) {
+    printf("FIXME copy 1\n");
+    abort();
+  }
+#endif
   memcpy_no_check(copy_areas[1], copy_areas[0], copy_areas[2] - copy_areas[1]);
 
   // Copy ITCRAM HOT section
@@ -502,6 +516,12 @@ int main(void)
   copy_areas2[1] = (uint32_t) &__itcram_hot_start__;
   copy_areas2[2] = (uint32_t) &__itcram_hot_end__;
   copy_areas2[3] = copy_areas2[2] - copy_areas2[1];
+#if SD_CARD != 0
+  if (copy_areas2[3]) {
+    printf("FIXME copy 2\n");
+    abort();
+  }
+#endif
   memcpy_no_check((uint32_t *) copy_areas2[1], (uint32_t *) copy_areas2[0], copy_areas2[3]);
 
   bq24072_init();

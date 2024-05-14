@@ -32,4 +32,8 @@ uint32_t OSPI_GetSmallestEraseSize(void);
 
 void OSPI_Init(OSPI_HandleTypeDef *hospi);
 
+#if SD_CARD != 0
+void sd_card_read(uint32_t address, void *buffer, size_t buffer_size);
+#endif // SD_CARD
+
 #endif

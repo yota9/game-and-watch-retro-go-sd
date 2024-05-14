@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <string.h>
 
+#include "gw_flash.h"
 #include "odroid_system.h"
 #include "odroid_settings.h"
 #include "main.h"
@@ -80,9 +81,18 @@ static const persistent_config_t persistent_config_default = {
 __attribute__((section (".configflash"))) __attribute__((aligned(4096))) persistent_config_t persistent_config_flash;
 persistent_config_t persistent_config_ram;
 
+static void read_peristent_config(persistent_config_t *persistent_config_ram)
+{
+#if SD_CARD == 0
+    memcpy(&persistent_config_ram, &persistent_config_flash, sizeof(persistent_config_ram));
+#else
+    sd_card_read((uint32_t)&persistent_config_flash, &persistent_config_ram, sizeof(persistent_config_ram));
+#endif // !SD_CARD
+}
+
 void odroid_settings_init()
 {
-    memcpy(&persistent_config_ram, &persistent_config_flash, sizeof(persistent_config_t));
+    read_peristent_config(&persistent_config_ram);
 
     if (persistent_config_ram.magic != CONFIG_MAGIC) {
         printf("Config: Magic mismatch. Expected 0x%08x, got 0x%08lx\n", CONFIG_MAGIC, persistent_config_ram.magic);
@@ -97,10 +107,11 @@ void odroid_settings_init()
     }
 
     // Calculate crc32 of the whole struct with the crc32 value set to 0
+    uint32_t crc = persistent_config_ram.crc32;
     persistent_config_ram.crc32 = 0;
     persistent_config_ram.crc32 = crc32_le(0, (unsigned char *) &persistent_config_ram, sizeof(persistent_config_t));
 
-    if (persistent_config_ram.crc32 != persistent_config_flash.crc32) {
+    if (crc != persistent_config_ram.crc32) {
         printf("Config: CRC32 mismatch. Expected 0x%08lx, got 0x%08lx\n", persistent_config_ram.crc32, persistent_config_flash.crc32);
         odroid_settings_reset();
         return;

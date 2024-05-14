@@ -64,7 +64,7 @@ ifeq ($(STATE_SAVING),0)
 endif
 
 # Screenshot support allocates 150kB of external flash. Disabled by default for 1MB flash.
-ifeq ($(EXTFLASH_SIZE), 1048576)
+ifeq ($(SD_CARD)sd$(EXTFLASH_SIZE), 0sd1048576)
 	ENABLE_SCREENSHOT ?= 0
 else
 	ENABLE_SCREENSHOT ?= 1
@@ -74,8 +74,17 @@ endif
 COMPRESS ?= lzma
 ifeq ($(COMPRESS),0)
 	COMPRESS_PARAM :=
+else ifneq ($(SD_CARD),0)
+# Not supporting compression for SD card
+	COMPRESS_PARAM :=
 else
 	COMPRESS_PARAM := --compress=$(COMPRESS)
+endif
+
+ifneq ($(SD_CARD),0)
+ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
+$(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
+endif
 endif
 
 # Reset the DBGMCU configuration register (DBGMCU_CR) after flashing
@@ -558,7 +567,7 @@ flash_extflash: $(BUILD_DIR)/$(TARGET)_extflash.bin
 ifeq ($(SD_CARD),0)
 	$(FLASH_MULTI) $< $(EXTFLASH_OFFSET)
 else
-	dd if=$< of=$(SD_CARD) bs=512 seek=$$(($(EXTFLASH_OFFSET) / 512))
+	dd if=$< of=$(SD_CARD) bs=512 oflag=direct seek=$$(($(EXTFLASH_OFFSET) / 512))
 endif
 .PHONY: flash_extflash
 

@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "gw_flash.h"
 #include "gw_linker.h"
 #include "rg_emulators.h"
 // #include "rg_favorites.h"
@@ -111,6 +112,11 @@ static void add_emulator(const char *system, const char *dirname, const char* ex
     p->roms.files = NULL;
     p->initialized = false;
     p->crc_offset = crc_offset;
+
+#if SD_CARD != 0
+    // TODO loading header from SD card is currently unsupported
+    header = NULL;
+#endif // SD_CARD
 
     gui_add_tab(dirname, header, p, event_handler);
 
@@ -374,6 +380,20 @@ void emulator_show_file_menu(retro_emulator_file_t *file)
     // free(sram_path);
 }
 
+static void load_overlay(void *overlay_ram, void *overlay_rom, uint32_t overlay_size,
+                         void *overlay_bss_start, uint32_t overlay_bss_size)
+{
+#if SD_CARD == 0
+    memcpy(overlay_ram, overlay_rom, overlay_size);
+    memset(overlay_bss_start, 0x0, overlay_bss_size);
+    SCB_CleanDCache_by_Addr((uint32_t *)overlay_ram, overlay_size);
+#else
+    sd_card_read((uint32_t)overlay_rom, overlay_ram, overlay_size);
+    memset(overlay_bss_start, 0x0, overlay_bss_size);
+    SCB_CleanDCache_by_Addr((uint32_t *)overlay_ram, overlay_size);
+#endif // !SD_CARD
+}
+
 void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_paused)
 {
     printf("Retro-Go: Starting game: %s\n", file->name);
@@ -385,19 +405,16 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 
     // odroid_system_switch_app(((retro_emulator_t *)file->emulator)->partition);
     retro_emulator_t *emu = file_to_emu(file);
-    // TODO: Make this cleaner
     if(strcmp(emu->system_name, "Nintendo Gameboy") == 0) {
 #ifdef ENABLE_EMULATOR_GB
-        memcpy(&__RAM_EMU_START__, &_OVERLAY_GB_LOAD_START, (size_t)&_OVERLAY_GB_SIZE);
-        memset(&_OVERLAY_GB_BSS_START, 0x0, (size_t)&_OVERLAY_GB_BSS_SIZE);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_GB_SIZE);
+        load_overlay(&__RAM_EMU_START__, &_OVERLAY_GB_LOAD_START, (size_t)&_OVERLAY_GB_SIZE,
+                     &_OVERLAY_GB_BSS_START, (size_t)&_OVERLAY_GB_BSS_SIZE);
         app_main_gb(load_state, start_paused);
 #endif
     } else if(strcmp(emu->system_name, "Nintendo Entertainment System") == 0) {
 #ifdef ENABLE_EMULATOR_NES
-        memcpy(&__RAM_EMU_START__, &_OVERLAY_NES_LOAD_START, (size_t)&_OVERLAY_NES_SIZE);
-        memset(&_OVERLAY_NES_BSS_START, 0x0, (size_t)&_OVERLAY_NES_BSS_SIZE);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_NES_SIZE);
+        load_overlay(&__RAM_EMU_START__, &_OVERLAY_NES_LOAD_START, (size_t)&_OVERLAY_NES_SIZE,
+                     &_OVERLAY_NES_BSS_START, (size_t)&_OVERLAY_NES_BSS_SIZE);
         app_main_nes(load_state, start_paused);
 #endif
     } else if(strcmp(emu->system_name, "Sega Master System") == 0 ||
@@ -405,9 +422,8 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
               strcmp(emu->system_name, "Sega SG-1000") == 0       ||
               strcmp(emu->system_name, "Colecovision") == 0 ) {
 #if defined(ENABLE_EMULATOR_SMS) || defined(ENABLE_EMULATOR_GG) || defined(ENABLE_EMULATOR_COL) || defined(ENABLE_EMULATOR_SG1000)
-        memcpy(&__RAM_EMU_START__, &_OVERLAY_SMS_LOAD_START, (size_t)&_OVERLAY_SMS_SIZE);
-        memset(&_OVERLAY_SMS_BSS_START, 0x0, (size_t)&_OVERLAY_SMS_BSS_SIZE);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMS_SIZE);
+        load_overlay(&__RAM_EMU_START__, &_OVERLAY_SMS_LOAD_START, (size_t)&_OVERLAY_SMS_SIZE,
+                     &_OVERLAY_SMS_BSS_START, (size_t)&_OVERLAY_SMS_BSS_SIZE);
         if (! strcmp(emu->system_name, "Colecovision")) app_main_smsplusgx(load_state, start_paused, SMSPLUSGX_ENGINE_COLECO);
         else
         if (! strcmp(emu->system_name, "Sega SG-1000")) app_main_smsplusgx(load_state, start_paused, SMSPLUSGX_ENGINE_SG1000);
@@ -415,16 +431,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #endif
     } else if(strcmp(emu->system_name, "Game & Watch") == 0 ) {
 #ifdef ENABLE_EMULATOR_GW
-        memcpy(&__RAM_EMU_START__, &_OVERLAY_GW_LOAD_START, (size_t)&_OVERLAY_GW_SIZE);
-        memset(&_OVERLAY_GW_BSS_START, 0x0, (size_t)&_OVERLAY_GW_BSS_SIZE);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_GW_SIZE);
+        load_overlay(&__RAM_EMU_START__, &_OVERLAY_GW_LOAD_START, (size_t)&_OVERLAY_GW_SIZE,
+                     &_OVERLAY_GW_BSS_START, (size_t)&_OVERLAY_GW_BSS_SIZE);
         app_main_gw(load_state);
 #endif
     } else if(strcmp(emu->system_name, "PC Engine") == 0) {
 #ifdef ENABLE_EMULATOR_PCE
-      memcpy(&__RAM_EMU_START__, &_OVERLAY_PCE_LOAD_START, (size_t)&_OVERLAY_PCE_SIZE);
-      memset(&_OVERLAY_PCE_BSS_START, 0x0, (size_t)&_OVERLAY_PCE_BSS_SIZE);
-      SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_PCE_SIZE);
+      load_overlay(&__RAM_EMU_START__, &_OVERLAY_PCE_LOAD_START, (size_t)&_OVERLAY_PCE_SIZE,
+                   &_OVERLAY_PCE_BSS_START, (size_t)&_OVERLAY_PCE_BSS_SIZE);
       app_main_pce(load_state, start_paused);
 #endif
   }

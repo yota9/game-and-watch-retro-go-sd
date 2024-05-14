@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #include "softspi.h"
 #include "main.h"
 
@@ -30,17 +32,21 @@ static void delay_us(uint32_t usec) {
     }
 }
 
-void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t len) {
+static void __SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData,
+                                uint32_t len, bool txDummy, bool csEnable) {
     int i, j;
     uint8_t txBit, rxBit;
     uint8_t txByte, rxByte;
 
+    if (!len)
+        return;
+
     HAL_GPIO_WritePin(spi->sck.port, spi->sck.pin, GPIO_PIN_RESET);
-    if (spi->cs.port)
+    if (csEnable)
         HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin, GPIO_PIN_RESET);
 
     for (i = 0; i < len; i++) {
-        txByte = txData[i];
+        txByte = txDummy ? txData[0] : txData[i];
         rxByte = 0;
 
         for (j = 7; j >= 0; j--) {
@@ -59,11 +65,24 @@ void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t 
             delay_us(spi->DelayUs);
         }
 
-        wdog_refresh();
         if (rxData)
             rxData[i] = rxByte;
     }
 
-     if (spi->cs.port)
+     if (csEnable)
         HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin, GPIO_PIN_SET);
+}
+
+void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t len) {
+    __SoftSpi_WriteRead(spi, txData, rxData, len, false, !!spi->cs.port);
+}
+
+void SoftSpi_WriteDummyRead(SoftSPI *spi, uint8_t *rxData, uint32_t len) {
+    uint8_t dummy = 0xFF;
+    __SoftSpi_WriteRead(spi, &dummy, rxData, len, true, !!spi->cs.port);
+}
+
+void SoftSpi_WriteDummyReadCsLow(SoftSPI *spi, uint8_t *rxData, uint32_t len) {
+    uint8_t dummy = 0xFF;
+    __SoftSpi_WriteRead(spi, &dummy, rxData, len, true, false);
 }

@@ -9,6 +9,7 @@
 #include <nes_input.h>
 #include <osd.h>
 #include "main.h"
+#include "gw_flash.h"
 #include "gw_buttons.h"
 #include "gw_lcd.h"
 #include "gw_linker.h"
@@ -28,7 +29,7 @@ static bool autoload = false;
 
 
 // if i counted correctly this should max be 23077
-uint8_t nes_save_buffer[24000];
+static uint8_t nes_save_buffer[24000];
 
 // TODO: Expose properly
 extern int nes_state_save(uint8_t *flash_ptr, size_t size);
@@ -50,7 +51,12 @@ extern int nes_state_load(uint8_t* flash_ptr, size_t size);
 
 static bool LoadState(char *pathName)
 {
-    nes_state_load((uint8_t *) ACTIVE_FILE->save_address, ACTIVE_FILE->save_size);
+#if SD_CARD != 0
+    sd_card_read((uint32_t)ACTIVE_FILE->save_address, nes_save_buffer, sizeof(nes_save_buffer));
+#else
+    memcpy(nes_save_buffer, (uint8_t *) ACTIVE_FILE->save_address, sizeof(nes_save_buffer));
+#endif // SD_CARD
+    nes_state_load(nes_save_buffer, ACTIVE_FILE->save_size);
     return true;
 }
 
@@ -463,6 +469,7 @@ size_t osd_getromdata(unsigned char **data)
     uint32_t available_size = (uint32_t)&_NES_ROM_UNPACK_BUFFER_SIZE;
 
     wdog_refresh();
+#if SD_CARD == 0
     if (memcmp(&src[0], LZ4_MAGIC, LZ4_MAGIC_SIZE) == 0)
     {
 
@@ -514,6 +521,16 @@ size_t osd_getromdata(unsigned char **data)
 
         return ROM_DATA_LENGTH;
     }
+#else
+    if (available_size < ROM_DATA_LENGTH) {
+        printf("ROM_DATA_LENGTH is too large for the buffer\n");
+        abort();
+    }
+
+    sd_card_read((uint32_t)src, dest, ROM_DATA_LENGTH);
+    *data = dest;
+    return ROM_DATA_LENGTH;
+#endif // !SD_CARD
 }
 
 uint osd_getromcrc()

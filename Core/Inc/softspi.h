@@ -18,3 +18,5 @@ typedef struct {
 } SoftSPI;
 
 void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t len);
+void SoftSpi_WriteDummyRead(SoftSPI *spi, uint8_t *rxData, uint32_t len);
+void SoftSpi_WriteDummyReadCsLow(SoftSPI *spi, uint8_t *rxData, uint32_t len);
