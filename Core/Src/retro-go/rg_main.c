@@ -126,7 +126,7 @@ static bool main_menu_timeout_cb(odroid_dialog_choice_t *option, odroid_dialog_e
         else if (timeout == 0xffff) {
             return false;
         }
-        
+
         if (timeout > (0xffff - step)) {
             step = 0xffff - timeout;
         }
@@ -260,23 +260,28 @@ void retro_loop()
                     char dbgmcu_id_str[16];
                     char dbgmcu_cr_str[16];
 
-                    // Read jedec id and status register from the external flash
-                    OSPI_DisableMemoryMappedMode();
-                    OSPI_ReadJedecId(&jedec_id[0]);
-                    OSPI_ReadSR(&status);
-                    OSPI_ReadCR(&config);
-                    OSPI_EnableMemoryMappedMode();
+                    if (FlashCtx.Presented) {
+                        // Read jedec id and status register from the external flash
+                        FlashCtx.DisableMemoryMappedMode();
+                        FlashCtx.ReadId(&jedec_id[0]);
+                        FlashCtx.ReadSR(&status);
+                        FlashCtx.ReadCR(&config);
+                        FlashCtx.EnableMemoryMappedMode();
 
-                    snprintf(jedec_id_str, sizeof(jedec_id_str), "%02X %02X %02X", jedec_id[0], jedec_id[1], jedec_id[2]);
-                    snprintf(status_str, sizeof(status_str), "0x%02X", status);
-                    snprintf(config_str, sizeof(config_str), "0x%02X", config);
-                    snprintf(erase_size_str, sizeof(erase_size_str), "%ld kB", OSPI_GetSmallestEraseSize() / 1024);
-                    snprintf(dbgmcu_id_str, sizeof(dbgmcu_id_str), "0x%08lX", DBGMCU->IDCODE);
-                    snprintf(dbgmcu_cr_str, sizeof(dbgmcu_cr_str), "0x%08lX", DBGMCU->CR);
+                        snprintf(jedec_id_str, sizeof(jedec_id_str), "%02X %02X %02X", jedec_id[0], jedec_id[1], jedec_id[2]);
+                        snprintf(status_str, sizeof(status_str), "0x%02X", status);
+                        snprintf(config_str, sizeof(config_str), "0x%02X", config);
+                        snprintf(erase_size_str, sizeof(erase_size_str), "%ld kB", FlashCtx.GetSmallestEraseSize() / 1024);
+                        snprintf(dbgmcu_id_str, sizeof(dbgmcu_id_str), "0x%08lX", DBGMCU->IDCODE);
+                        snprintf(dbgmcu_cr_str, sizeof(dbgmcu_cr_str), "0x%08lX", DBGMCU->CR);
+                    }
 
                     odroid_dialog_choice_t debuginfo[] = {
+#if SD_CARD != 0
+                        {0, "SD card used", "", 1, NULL},
+#endif // SD_CARD
                         {0, "Flash JEDEC ID", (char *) jedec_id_str, 1, NULL},
-                        {0, "Flash Name", (char*) OSPI_GetFlashName(), 1, NULL},
+                        {0, "Flash Name", (char*) FlashCtx.GetName(), 1, NULL},
                         {0, "Flash SR", (char *) status_str, 1, NULL},
                         {0, "Flash CR", (char *) config_str, 1, NULL},
                         {0, "Smallest erase", erase_size_str, 1, NULL},
@@ -288,7 +293,13 @@ void retro_loop()
                         ODROID_DIALOG_CHOICE_LAST
                     };
 
-                    int sel = odroid_overlay_dialog("Debug", debuginfo, -1);
+                    odroid_dialog_choice_t debuginfoSdOnly[] = {
+                        {0, "SD card used only", "", 1, NULL},
+                        ODROID_DIALOG_CHOICE_LAST
+                    };
+
+                    int sel = odroid_overlay_dialog("Debug", FlashCtx.Presented ?
+                                                    debuginfo : debuginfoSdOnly, -1);
                     switch (sel) {
                     case 1:
                         // Enable debug clocks explicitly
@@ -336,7 +347,7 @@ void retro_loop()
             }
             // TIME menu
             else if (last_key == ODROID_INPUT_SELECT) {
-                
+
                 char time_str[14];
                 char date_str[24];
 
@@ -445,7 +456,7 @@ void app_main(void)
     // favorites_init();
 
     // Start the previously running emulator directly if it's a valid pointer.
-    // If the user holds down the TIME button during startup,start the retro-go 
+    // If the user holds down the TIME button during startup,start the retro-go
     // gui instead of the last ROM as a fallback.
     retro_emulator_file_t *file = odroid_settings_StartupFile_get();
     if (emulator_is_file_valid(file) && ((GW_GetBootButtons() & B_TIME) == 0)) {

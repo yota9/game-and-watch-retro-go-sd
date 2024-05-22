@@ -10,6 +10,11 @@
 #include "main.h"
 #include "utils.h"
 
+// NOTE Use switch_ospi_gpio() in every exported function that uses sd card
+// and swtich back to ospi before exit. This is needed since flash memory
+// is memory-mmaped and should always be ready to be used, so it is more
+// prioritised.
+
 #define DBG(...) printf(__VA_ARGS__)
 
 #ifndef MIN
@@ -27,11 +32,12 @@ static struct {
     bool ccs : 1;
 } sd = {
     .spi[0] = {
-        .sck = { .port = GPIO_OSPI_CLK_GPIO_Port, .pin = GPIO_OSPI_CLK_Pin },
-        .mosi = { .port = GPIO_OSPI_MOSI_GPIO_Port, .pin = GPIO_OSPI_MOSI_Pin },
-        .miso = { .port = GPIO_OSPI_MISO_GPIO_Port, .pin = GPIO_OSPI_MISO_Pin },
-        .cs = { .port = GPIO_OSPI_NCS_GPIO_Port, .pin = GPIO_OSPI_NCS_Pin },
-        .DelayUs = 20
+        .sck = { .port = GPIO_FLASH_CLK_GPIO_Port, .pin = GPIO_FLASH_CLK_Pin },
+        .mosi = { .port = GPIO_FLASH_MOSI_GPIO_Port, .pin = GPIO_FLASH_MOSI_Pin },
+        .miso = { .port = GPIO_FLASH_MISO_GPIO_Port, .pin = GPIO_FLASH_MISO_Pin },
+        .cs = { .port = GPIO_FLASH_NCS_GPIO_Port, .pin = GPIO_FLASH_NCS_Pin },
+        .DelayUs = 20,
+        .csIsInverted = true
     }
 };
 
@@ -140,7 +146,7 @@ enum cmd_list {
     READ_OCR,
 };
 
-struct sd_cmd {
+static struct sd_cmd {
     uint8_t cmd;
     uint8_t crc;
     response_fn response;
@@ -154,6 +160,18 @@ struct sd_cmd {
 };
 
 // =============================================================================
+
+static void EnableMemoryMappedMode(void) {}
+static void DisableMemoryMappedMode(void) {}
+static void ReadSR(uint8_t dest[1]) { *dest = 0; }
+static void ReadCR(uint8_t dest[1]) { *dest = 0; }
+static const char* GetName(void) { return "Sd"; }
+static uint32_t GetSmallestEraseSize(void) { return 1; }
+static void ReadId(uint8_t dest[3]) {
+    dest[0] = 0;
+    dest[1] = 0;
+    dest[2] = 0;
+}
 
 static void __send_cmd_payload(uint8_t cmd, uint32_t arg, uint32_t crc) {
     uint8_t spi_cmd_payload[6] = {cmd | 0x40, arg >> 24, arg >> 16, arg >> 8, arg, crc | 0x1};
@@ -196,20 +214,7 @@ static void send_read_cmd(uint32_t addr) {
     } while(ret != 0xFE);
 }
 
-void OSPI_EnableMemoryMappedMode(void) {}
-void OSPI_DisableMemoryMappedMode(void) {}
-void OSPI_ReadSR(uint8_t dest[1]) { *dest = 0; }
-void OSPI_ReadCR(uint8_t dest[1]) { *dest = 0; }
-const char* OSPI_GetFlashName(void) { return "sd"; }
-uint32_t OSPI_GetSmallestEraseSize(void) { return 1; }
-void OSPI_NOR_WriteEnable(void) {}
-void OSPI_ReadJedecId(uint8_t dest[3]) {
-    dest[0] = 0;
-    dest[1] = 0;
-    dest[2] = 0;
-}
-
-void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
+static void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
     uint8_t *buffer = (uint8_t *)pbuffer;
     const uint32_t start_address = address & ~(BLOCK_SIZE - 1);
 
@@ -219,6 +224,8 @@ void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
 #define SKIP_CHECKSUM() \
     SoftSpi_WriteDummyRead(sd.spi, NULL, 1); \
     SoftSpi_WriteDummyRead(sd.spi, NULL, 1)
+
+    switch_ospi_gpio(false);
 
     // Read first unaligned block
     if (address != start_address) {
@@ -267,40 +274,22 @@ void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
         SKIP_CHECKSUM();
     }
 
+    switch_ospi_gpio(true);
+
 #undef SKIP_CHECKSUM
 }
 
-void OSPI_ChipErase(void) {
-
-}
-
-bool OSPI_Erase(uint32_t *address, uint32_t *size) {
-    return true;
-}
-
-void OSPI_EraseSync(uint32_t address, uint32_t size) {
-
-}
-
-void OSPI_PageProgram(uint32_t address, const uint8_t *buffer, size_t buffer_size) {
-
-}
-
-
-void OSPI_Program(uint32_t address, const uint8_t *buffer, size_t buffer_size) {
-
-}
-
-void OSPI_Init(OSPI_HandleTypeDef *hospi) {
+static void Init(OSPI_HandleTypeDef *hospi) {
     struct response response;
     int i;
+
+    switch_ospi_gpio(false);
 
     SoftSpi_WriteDummyReadCsLow(sd.spi, NULL, 10);
 
     response = send_cmd(GO_IDLE_STATE, 0);
     if (response.r0 != (1 << R1_IDLE)) {
         printf("SD: Go idle state failed\n");
-        printf("Probably SD card is removed\n");
         abort();
     }
 
@@ -338,4 +327,19 @@ void OSPI_Init(OSPI_HandleTypeDef *hospi) {
     }
 
     sd.spi->DelayUs = 0;
+
+    switch_ospi_gpio(true);
 }
+
+struct FlashCtx SdCtx = {
+    .Init = Init,
+    .Read = sd_card_read,
+    .EnableMemoryMappedMode = EnableMemoryMappedMode,
+    .DisableMemoryMappedMode = DisableMemoryMappedMode,
+    .ReadId = ReadId,
+    .ReadSR = ReadSR,
+    .ReadCR = ReadCR,
+    .GetSmallestEraseSize = GetSmallestEraseSize,
+    .GetName = GetName,
+    .Presented = true
+};

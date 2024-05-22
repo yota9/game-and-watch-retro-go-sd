@@ -117,6 +117,7 @@ __FBFLASH_LENGTH__ = ENABLE_SCREENSHOT ? ((320 * 240 * 2 + 4095) / 4096) * 4096 
  *            |                                  |
  *            +----------------------------------+  __FBFLASH_END__
  */
+
 __EXTFLASH_LENGTH__ = __EXTFLASH_TOTAL_LENGTH__ - (__SAVEFLASH_LENGTH__ + __CONFIGFLASH_LENGTH__ + __FBFLASH_LENGTH__);
 __EXTFLASH_END__ = __EXTFLASH_START__ + __EXTFLASH_LENGTH__;
 __SAVEFLASH_START__ = __EXTFLASH_END__;

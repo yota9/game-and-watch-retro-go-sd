@@ -342,7 +342,7 @@ const jedec_config_t jedec_map[] = {
     // MX 32 bit address
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x39, "MX25U25635F",    &config_quad_32b_mx),   // 32 MB
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x3A, "MX25U51245G",    &config_quad_32b_mx),   // 64 MB
-    JEDEC_CONFIG_DEF(0xC2, 0x24, 0x3A, "MX25U51245G",    &config_quad_32b_mx),   // 64 MB variant of unknown cause supplied by DigiKey (not listed in datasheet)	
+    JEDEC_CONFIG_DEF(0xC2, 0x24, 0x3A, "MX25U51245G",    &config_quad_32b_mx),   // 64 MB variant of unknown cause supplied by DigiKey (not listed in datasheet)
     JEDEC_CONFIG_DEF(0xC2, 0x95, 0x3A, "MX25U51245G-54", &config_quad_32b_mx54), // 64 MB
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x3B, "MX66U1G45G",     &config_quad_32b_mx),   // 128 MB
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x3C, "MX66U2G45G",     &config_quad_32b_mx),   // 256 MB
@@ -385,6 +385,8 @@ static void set_ospi_cmd(OSPI_RegularCmdTypeDef *ospi_cmd,
                          uint8_t *data,
                          size_t len)
 {
+    switch_ospi_gpio(true);
+
     memset(ospi_cmd, 0x0, sizeof(*ospi_cmd));
 
     ospi_cmd->OperationType = HAL_OSPI_OPTYPE_COMMON_CFG;
@@ -488,7 +490,7 @@ static void wait_for_status(uint8_t mask, uint8_t value, uint32_t timeout)
     } while ((status & mask) != value);
 }
 
-void OSPI_EnableMemoryMappedMode(void)
+static void OSPI_EnableMemoryMappedMode(void)
 {
     OSPI_MemoryMappedTypeDef sMemMappedCfg;
     OSPI_RegularCmdTypeDef ospi_cmd;
@@ -522,7 +524,7 @@ void OSPI_EnableMemoryMappedMode(void)
     flash.mem_mapped_enabled = true;
 }
 
-void OSPI_DisableMemoryMappedMode(void)
+static void OSPI_DisableMemoryMappedMode(void)
 {
     assert(flash.mem_mapped_enabled == true);
 
@@ -545,13 +547,22 @@ static void _OSPI_Erase(const flash_cmd_t *cmd, uint32_t address)
     wait_for_status(STATUS_WIP_Msk, 0, 0);
 }
 
-void OSPI_ChipErase(void)
+static void OSPI_NOR_WriteEnable(void)
+{
+    OSPI_WriteBytes(CMD(WREN), 0, NULL, 0);
+
+    // Wait for Write Enable Latch to be set
+    wait_for_status(STATUS_WEL_Msk, STATUS_WEL_Msk, TMO_DEFAULT);
+}
+
+static void OSPI_ChipErase(void)
 {
     DBG("CE\n");
+    OSPI_NOR_WriteEnable();
     _OSPI_Erase(CMD(CE), 0); // Chip Erase
 }
 
-bool OSPI_Erase(uint32_t *address, uint32_t *size)
+static bool OSPI_Erase(uint32_t *address, uint32_t *size)
 {
     // Performs one erase command per call with the largest size possible.
     // Sets *address and *size to values that should be passed to
@@ -603,7 +614,7 @@ bool OSPI_Erase(uint32_t *address, uint32_t *size)
     return false;
 }
 
-void OSPI_EraseSync(uint32_t address, uint32_t size)
+static void OSPI_EraseSync(uint32_t address, uint32_t size)
 {
     bool ret;
 
@@ -612,7 +623,7 @@ void OSPI_EraseSync(uint32_t address, uint32_t size)
     } while (ret == false);
 }
 
-void OSPI_PageProgram(uint32_t address,
+static void OSPI_PageProgram(uint32_t address,
                       const uint8_t *buffer,
                       size_t buffer_size)
 {
@@ -626,15 +637,7 @@ void OSPI_PageProgram(uint32_t address,
     wait_for_status(STATUS_WIP_Msk, 0, TMO_DEFAULT);
 }
 
-void OSPI_NOR_WriteEnable(void)
-{
-    OSPI_WriteBytes(CMD(WREN), 0, NULL, 0);
-
-    // Wait for Write Enable Latch to be set
-    wait_for_status(STATUS_WEL_Msk, STATUS_WEL_Msk, TMO_DEFAULT);
-}
-
-void OSPI_Program(uint32_t address,
+static void OSPI_Program(uint32_t address,
                   const uint8_t *buffer,
                   size_t buffer_size)
 {
@@ -652,17 +655,17 @@ void OSPI_Program(uint32_t address,
     }
 }
 
-void OSPI_ReadJedecId(uint8_t dest[3])
+static void OSPI_ReadJedecId(uint8_t dest[3])
 {
     OSPI_ReadBytes(CMD(RDID), 0, dest, 3);
 }
 
-void OSPI_ReadSR(uint8_t dest[1])
+static void OSPI_ReadSR(uint8_t dest[1])
 {
     OSPI_ReadBytes(CMD(RDSR), 0, dest, 1);
 }
 
-void OSPI_ReadCR(uint8_t dest[1])
+static void OSPI_ReadCR(uint8_t dest[1])
 {
     OSPI_ReadBytes(CMD(RDCR), 0, dest, 1);
 }
@@ -806,18 +809,18 @@ static void init_winbond(void)
     }
 }
 
-const char* OSPI_GetFlashName(void)
+static const char* OSPI_GetFlashName(void)
 {
     return flash.name;
 }
 
-uint32_t OSPI_GetSmallestEraseSize(void)
+static uint32_t OSPI_GetSmallestEraseSize(void)
 {
     // Assumes that erase sizes are sorted: 4 > 3 > 2 > 1.
     return flash.config->erase_sizes[0];
 }
 
-void OSPI_Init(OSPI_HandleTypeDef *hospi)
+static void OSPI_Init(OSPI_HandleTypeDef *hospi)
 {
     uint8_t status;
 
@@ -838,7 +841,14 @@ void OSPI_Init(OSPI_HandleTypeDef *hospi)
     // Check for known bad IDs
     if (((flash.jedec_id.u32 & 0xffffff) == 0xffffff) ||
         ((flash.jedec_id.u32 & 0xffffff) == 0x000000)) {
-        assert(!"Can't communicate with the external flash! Please check the soldering.");
+#if SD_CARD == 0
+        printf("Can't communicate with the external flash! Please check the soldering.");
+        abort();
+#else
+        FlashCtx.Presented = false;
+        printf("SPI Flash not found! Skipping\n");
+        return;
+#endif // !SD_CARD
     }
 
     OSPI_ReadBytes(CMD(RDSR), 0, &status, 1);
@@ -859,3 +869,25 @@ void OSPI_Init(OSPI_HandleTypeDef *hospi)
 
     OSPI_EnableMemoryMappedMode();
 }
+
+static void OSPI_Read(uint32_t address, void *buffer, size_t buffer_size)
+{
+    assert(flash.mem_mapped_enabled == true);
+    memcpy(buffer, (void *)address, buffer_size);
+}
+
+struct FlashCtx FlashCtx = {
+    .Init = OSPI_Init,
+    .Read = OSPI_Read,
+    .Write = OSPI_Program,
+    .EnableMemoryMappedMode = OSPI_EnableMemoryMappedMode,
+    .DisableMemoryMappedMode = OSPI_DisableMemoryMappedMode,
+    .Format = OSPI_ChipErase,
+    .Erase = OSPI_EraseSync,
+    .ReadId = OSPI_ReadJedecId,
+    .ReadSR = OSPI_ReadSR,
+    .ReadCR = OSPI_ReadCR,
+    .GetSmallestEraseSize = OSPI_GetSmallestEraseSize,
+    .GetName = OSPI_GetFlashName,
+    .Presented = true,
+};

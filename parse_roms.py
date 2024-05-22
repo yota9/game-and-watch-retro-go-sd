@@ -721,7 +721,7 @@ class ROMParser:
                 f"Total:\t\t{total_size} / {args.flash_size} bytes (plus some metadata)."
             )
 
-        if total_size > args.flash_size:
+        if args.sd == False and total_size > args.flash_size:
             print(f"Error: External flash will overflow! Need at least {total_size / 1024 / 1024 :.2f} MB")
             # Delete build/roms.a - the makefile will run parse_roms.py if this file is outdated or missing.
             try:
@@ -770,6 +770,13 @@ if __name__ == "__main__":
         "--verbose",
         action="store_true",
         help="Enable verbose prints",
+    )
+    parser.add_argument(
+        "--sd",
+        "-S",
+        type=bool,
+        default=False,
+        help="Rom stored on sd card",
     )
     args = parser.parse_args()
 

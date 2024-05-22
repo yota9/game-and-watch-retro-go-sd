@@ -383,21 +383,59 @@ void emulator_show_file_menu(retro_emulator_file_t *file)
 static void load_overlay(void *overlay_ram, void *overlay_rom, uint32_t overlay_size,
                          void *overlay_bss_start, uint32_t overlay_bss_size)
 {
-#if SD_CARD == 0
-    memcpy(overlay_ram, overlay_rom, overlay_size);
+    get_flash_ctx()->Read((uint32_t)overlay_rom, overlay_ram, overlay_size);
     memset(overlay_bss_start, 0x0, overlay_bss_size);
     SCB_CleanDCache_by_Addr((uint32_t *)overlay_ram, overlay_size);
-#else
-    sd_card_read((uint32_t)overlay_rom, overlay_ram, overlay_size);
-    memset(overlay_bss_start, 0x0, overlay_bss_size);
-    SCB_CleanDCache_by_Addr((uint32_t *)overlay_ram, overlay_size);
-#endif // !SD_CARD
+}
+
+static void load_rom(retro_emulator_file_t *file, uint8_t *ram_buffer, uint32_t ram_length)
+{
+    uint8_t *rom_address = (uint8_t *)file->address;
+
+#if SD_CARD != 0
+    uint32_t src = (uint32_t)rom_address;
+    int rom_size = file->size;
+
+    if (ram_length >= rom_size) {
+        SdCtx.Read(src, ram_buffer, rom_size);
+        rom_address = ram_buffer;
+    } else {
+        const int block_length = 512;
+        uint32_t addr = 0;
+        assert(ram_length >= block_length);
+        if (!FlashCtx.Presented) {
+            printf("Unable to load the game, no flash found");
+            abort();
+        }
+
+        if ((size_t)&__EXTFLASH_TOTAL_LENGTH__ < rom_size) {
+            printf("Flash is too small to load a game\n");
+            abort();
+        }
+
+        FlashCtx.DisableMemoryMappedMode();
+        while (rom_size > 0) {
+            if (addr % 0x1000 == 0)
+                FlashCtx.Erase(addr, 0x1000);
+
+            SdCtx.Read(src, ram_buffer, block_length);
+            FlashCtx.Write(addr, ram_buffer, block_length);
+            src += block_length;
+            addr += block_length;
+            rom_size -= block_length;
+        }
+
+        FlashCtx.EnableMemoryMappedMode();
+        rom_address = (uint8_t *)&__EXTFLASH_BASE__;
+    }
+#endif //SD_CARD
+
+    rom_manager_set_active_file(file, rom_address);
 }
 
 void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_paused)
 {
     printf("Retro-Go: Starting game: %s\n", file->name);
-    rom_manager_set_active_file(file);
 
     // odroid_settings_StartAction_set(load_state ? ODROID_START_ACTION_RESUME : ODROID_START_ACTION_NEWGAME);
     // odroid_settings_RomFilePath_set(path);
@@ -409,12 +447,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #ifdef ENABLE_EMULATOR_GB
         load_overlay(&__RAM_EMU_START__, &_OVERLAY_GB_LOAD_START, (size_t)&_OVERLAY_GB_SIZE,
                      &_OVERLAY_GB_BSS_START, (size_t)&_OVERLAY_GB_BSS_SIZE);
+        load_rom(file, (unsigned char *)&_GB_ROM_UNPACK_BUFFER, (uint32_t)&_GB_ROM_UNPACK_BUFFER_SIZE);
         app_main_gb(load_state, start_paused);
 #endif
     } else if(strcmp(emu->system_name, "Nintendo Entertainment System") == 0) {
 #ifdef ENABLE_EMULATOR_NES
         load_overlay(&__RAM_EMU_START__, &_OVERLAY_NES_LOAD_START, (size_t)&_OVERLAY_NES_SIZE,
                      &_OVERLAY_NES_BSS_START, (size_t)&_OVERLAY_NES_BSS_SIZE);
+        load_rom(file, (unsigned char *)&_NES_ROM_UNPACK_BUFFER, (uint32_t)&_NES_ROM_UNPACK_BUFFER_SIZE);
         app_main_nes(load_state, start_paused);
 #endif
     } else if(strcmp(emu->system_name, "Sega Master System") == 0 ||
@@ -424,6 +464,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #if defined(ENABLE_EMULATOR_SMS) || defined(ENABLE_EMULATOR_GG) || defined(ENABLE_EMULATOR_COL) || defined(ENABLE_EMULATOR_SG1000)
         load_overlay(&__RAM_EMU_START__, &_OVERLAY_SMS_LOAD_START, (size_t)&_OVERLAY_SMS_SIZE,
                      &_OVERLAY_SMS_BSS_START, (size_t)&_OVERLAY_SMS_BSS_SIZE);
+        load_rom(file, NULL, 0);
         if (! strcmp(emu->system_name, "Colecovision")) app_main_smsplusgx(load_state, start_paused, SMSPLUSGX_ENGINE_COLECO);
         else
         if (! strcmp(emu->system_name, "Sega SG-1000")) app_main_smsplusgx(load_state, start_paused, SMSPLUSGX_ENGINE_SG1000);
@@ -433,12 +474,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #ifdef ENABLE_EMULATOR_GW
         load_overlay(&__RAM_EMU_START__, &_OVERLAY_GW_LOAD_START, (size_t)&_OVERLAY_GW_SIZE,
                      &_OVERLAY_GW_BSS_START, (size_t)&_OVERLAY_GW_BSS_SIZE);
+        load_rom(file, NULL, 0);
         app_main_gw(load_state);
 #endif
     } else if(strcmp(emu->system_name, "PC Engine") == 0) {
 #ifdef ENABLE_EMULATOR_PCE
       load_overlay(&__RAM_EMU_START__, &_OVERLAY_PCE_LOAD_START, (size_t)&_OVERLAY_PCE_SIZE,
                    &_OVERLAY_PCE_BSS_START, (size_t)&_OVERLAY_PCE_BSS_SIZE);
+      load_rom(file, (unsigned char *)&_PCE_ROM_UNPACK_BUFFER, (uint32_t)&_PCE_ROM_UNPACK_BUFFER_SIZE);
       app_main_pce(load_state, start_paused);
 #endif
   }

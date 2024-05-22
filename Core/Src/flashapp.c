@@ -263,9 +263,9 @@ static void test_flash(flashapp_t *flashapp)
     // Erase 512kB at 0
     address = 0;
     size = rand_size;
-    OSPI_DisableMemoryMappedMode();
-    OSPI_EraseSync(address, size);
-    OSPI_EnableMemoryMappedMode();
+    FlashCtx.DisableMemoryMappedMode();
+    FlashCtx.Erase(address, size);
+    FlashCtx.EnableMemoryMappedMode();
     assert(validate_erased(address, size));
 
     generate_random((uint32_t *) flash_buffer, rand_size, 0x12345678);
@@ -273,9 +273,9 @@ static void test_flash(flashapp_t *flashapp)
     // Write and verify 512kB random data
     address = 0;
     size = rand_size;
-    OSPI_DisableMemoryMappedMode();
-    OSPI_Program(address, &flash_buffer[address], size);
-    OSPI_EnableMemoryMappedMode();
+    FlashCtx.DisableMemoryMappedMode();
+    FlashCtx.Write(address, &flash_buffer[address], size);
+    FlashCtx.EnableMemoryMappedMode();
 
     // Erase parts of the flash and verify that the non erased data is still intact
     for (int i = 0; i < ARRAY_SIZE(tests); i++) {
@@ -290,9 +290,9 @@ static void test_flash(flashapp_t *flashapp)
         assert(memcmp(&flash_ptr[start], &flash_buffer[start], size) == 0);
 
         // Erase
-        OSPI_DisableMemoryMappedMode();
-        OSPI_EraseSync(start, size);
-        OSPI_EnableMemoryMappedMode();
+        FlashCtx.DisableMemoryMappedMode();
+        FlashCtx.Erase(start, size);
+        FlashCtx.EnableMemoryMappedMode();
 
         // Check that erased is actually erased
         assert(validate_erased(start, size));
@@ -398,7 +398,7 @@ static void flashapp_run(flashapp_t *flashapp)
         }
         break;
     case FLASHAPP_ERASE_NEXT:
-        OSPI_DisableMemoryMappedMode();
+        FlashCtx.DisableMemoryMappedMode();
 
         if (program_erase) {
             if (program_erase_bytes == 0) {
@@ -407,7 +407,7 @@ static void flashapp_run(flashapp_t *flashapp)
                 flashapp->erase_address = program_address;
                 flashapp->erase_bytes_left = program_erase_bytes;
 
-                uint32_t smallest_erase = OSPI_GetSmallestEraseSize();
+                uint32_t smallest_erase = FlashCtx.GetSmallestEraseSize();
 
                 if (flashapp->erase_address & (smallest_erase - 1)) {
                     sprintf(flashapp->tab.name, "** Address not aligned to smallest erase size! **");
@@ -433,14 +433,12 @@ static void flashapp_run(flashapp_t *flashapp)
         break;
     case FLASHAPP_ERASE:
         if (program_erase_bytes == 0) {
-            OSPI_NOR_WriteEnable();
-            OSPI_ChipErase();
+            FlashCtx.Format();
             state_inc();
         } else {
-            if (OSPI_Erase(&flashapp->erase_address, &flashapp->erase_bytes_left)) {
-                flashapp->progress_max = 0;
-                state_inc();
-            }
+            FlashCtx.Erase(flashapp->erase_address, flashapp->erase_bytes_left);
+            flashapp->progress_max = 0;
+            state_inc();
             flashapp->progress_value = flashapp->progress_max - flashapp->erase_bytes_left;
         }
         break;
@@ -457,8 +455,7 @@ static void flashapp_run(flashapp_t *flashapp)
         if (flashapp->program_bytes_left > 0) {
             uint32_t dest_page = flashapp->current_program_address / 256;
             uint32_t bytes_to_write = flashapp->program_bytes_left > 256 ? 256 : flashapp->program_bytes_left;
-            OSPI_NOR_WriteEnable();
-            OSPI_PageProgram(dest_page * 256, flashapp->program_buf, bytes_to_write);
+            FlashCtx.Write(dest_page * 256, flashapp->program_buf, bytes_to_write);
             flashapp->current_program_address += bytes_to_write;
             flashapp->program_buf += bytes_to_write;
             flashapp->program_bytes_left -= bytes_to_write;
@@ -469,7 +466,7 @@ static void flashapp_run(flashapp_t *flashapp)
         break;
     case FLASHAPP_CHECK_HASH_FLASH_NEXT:
         sprintf(flashapp->tab.name, "6. Checking hash in FLASH");
-        OSPI_EnableMemoryMappedMode();
+        FlashCtx.EnableMemoryMappedMode();
         state_inc();
         break;
     case FLASHAPP_CHECK_HASH_FLASH:

@@ -2,7 +2,7 @@ build
 
 Drivers
 
-Makefile
+config.mk
 Core/Inc/rom_info.h
 Core/Inc/githash.h
 roms

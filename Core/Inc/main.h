@@ -116,6 +116,8 @@ void GW_EnterDeepSleep(void);
 uint32_t GW_GetBootButtons(void);
 void wdog_refresh(void);
 
+void switch_ospi_gpio(uint8_t ToOspi);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -142,16 +144,15 @@ void wdog_refresh(void);
 #define BTN_B_Pin GPIO_PIN_5
 #define BTN_B_GPIO_Port GPIOD
 
-#if SD_CARD != 0
-#  define GPIO_OSPI_NCS_Pin GPIO_PIN_11
-#  define GPIO_OSPI_NCS_GPIO_Port GPIOE
-#  define GPIO_OSPI_MOSI_Pin GPIO_PIN_1
-#  define GPIO_OSPI_MOSI_GPIO_Port GPIOB
-#  define GPIO_OSPI_CLK_Pin GPIO_PIN_2
-#  define GPIO_OSPI_CLK_GPIO_Port GPIOB
-#  define GPIO_OSPI_MISO_Pin GPIO_PIN_12
-#  define GPIO_OSPI_MISO_GPIO_Port GPIOD
-#endif // SD_CARD
+// OSPI pins
+#define GPIO_FLASH_NCS_Pin GPIO_PIN_11
+#define GPIO_FLASH_NCS_GPIO_Port GPIOE
+#define GPIO_FLASH_MOSI_Pin GPIO_PIN_1
+#define GPIO_FLASH_MOSI_GPIO_Port GPIOB
+#define GPIO_FLASH_CLK_Pin GPIO_PIN_2
+#define GPIO_FLASH_CLK_GPIO_Port GPIOB
+#define GPIO_FLASH_MISO_Pin GPIO_PIN_12
+#define GPIO_FLASH_MISO_GPIO_Port GPIOD
 
 // Zelda only buttons; they are not connected on mario.
 #define BTN_START_Pin GPIO_PIN_11

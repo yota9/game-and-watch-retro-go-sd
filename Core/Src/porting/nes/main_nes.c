@@ -40,8 +40,9 @@ static bool SaveState(char *pathName)
 {
     printf("Saving state...\n");
 
-    nes_state_save(nes_save_buffer, 24000);
-    store_save((uint8_t *) ACTIVE_FILE->save_address, nes_save_buffer, sizeof(nes_save_buffer));
+    nes_state_save(nes_save_buffer, sizeof(nes_save_buffer));
+    store_save((uint8_t *) ACTIVE_FILE->save_address, nes_save_buffer,
+               sizeof(nes_save_buffer));
 
     return 0;
 }
@@ -51,11 +52,8 @@ extern int nes_state_load(uint8_t* flash_ptr, size_t size);
 
 static bool LoadState(char *pathName)
 {
-#if SD_CARD != 0
-    sd_card_read((uint32_t)ACTIVE_FILE->save_address, nes_save_buffer, sizeof(nes_save_buffer));
-#else
-    memcpy(nes_save_buffer, (uint8_t *) ACTIVE_FILE->save_address, sizeof(nes_save_buffer));
-#endif // SD_CARD
+    get_flash_ctx()->Read((uint32_t)ACTIVE_FILE->save_address, nes_save_buffer,
+                          sizeof(nes_save_buffer));
     nes_state_load(nes_save_buffer, ACTIVE_FILE->save_size);
     return true;
 }
@@ -463,13 +461,15 @@ void osd_getinput(void)
 
 size_t osd_getromdata(unsigned char **data)
 {
-    /* src pointer to the ROM data in the external flash (raw or LZ4) */
+    /* ROM_DATA is set at emulator_start */
     const unsigned char *src = ROM_DATA;
+
+    wdog_refresh();
+
+#if SD_CARD == 0
     unsigned char *dest = (unsigned char *)&_NES_ROM_UNPACK_BUFFER;
     uint32_t available_size = (uint32_t)&_NES_ROM_UNPACK_BUFFER_SIZE;
 
-    wdog_refresh();
-#if SD_CARD == 0
     if (memcmp(&src[0], LZ4_MAGIC, LZ4_MAGIC_SIZE) == 0)
     {
 
@@ -515,22 +515,10 @@ size_t osd_getromdata(unsigned char **data)
         *data = dest;
         return n_decomp_bytes;
     }
-    else
-    {
-        *data = (unsigned char *)ROM_DATA;
-
-        return ROM_DATA_LENGTH;
-    }
-#else
-    if (available_size < ROM_DATA_LENGTH) {
-        printf("ROM_DATA_LENGTH is too large for the buffer\n");
-        abort();
-    }
-
-    sd_card_read((uint32_t)src, dest, ROM_DATA_LENGTH);
-    *data = dest;
-    return ROM_DATA_LENGTH;
 #endif // !SD_CARD
+
+    *data = (unsigned char *)src;
+    return ROM_DATA_LENGTH;
 }
 
 uint osd_getromcrc()
@@ -582,7 +570,8 @@ int app_main_nes(uint8_t load_state, uint8_t start_paused)
         HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *) audiobuffer_dma, (2 * AUDIO_SAMPLE_RATE) / 60);
     }
 
-    nofrendo_start(ACTIVE_FILE->name, nes_region, AUDIO_SAMPLE_RATE, false);
+    if (nofrendo_start(ACTIVE_FILE->name, nes_region, AUDIO_SAMPLE_RATE, false) < 0)
+        abort();
 
     return 0;
 }

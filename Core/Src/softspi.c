@@ -43,7 +43,11 @@ static void __SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData,
 
     HAL_GPIO_WritePin(spi->sck.port, spi->sck.pin, GPIO_PIN_RESET);
     if (csEnable)
-        HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin,
+                          spi->csIsInverted ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    else if (spi->cs.port)
+        HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin,
+                          spi->csIsInverted ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
     for (i = 0; i < len; i++) {
         txByte = txDummy ? txData[0] : txData[i];
@@ -70,7 +74,8 @@ static void __SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData,
     }
 
      if (csEnable)
-        HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(spi->cs.port, spi->cs.pin,
+                          spi->csIsInverted ? GPIO_PIN_RESET : GPIO_PIN_SET);
 }
 
 void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t len) {

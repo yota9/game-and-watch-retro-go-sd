@@ -1,3 +1,5 @@
+-include config.mk
+
 ######################################
 # building variables
 ######################################
@@ -41,12 +43,20 @@ ifeq ($(LARGE_FLASH),1)
 	# 16MB
 	EXTFLASH_SIZE_MB ?= 16
 else
-	# 4MB for Zelda otherwise 1MB 
+	# 4MB for Zelda otherwise 1MB
 	ifeq ($(GNW_TARGET),zelda)
 		EXTFLASH_SIZE_MB ?= 4
 	else
 		EXTFLASH_SIZE_MB ?= 1
 	endif
+endif
+
+ifneq ($(SD_CARD),0)
+SD_CARD_PARAM := --sd True
+EXTFLASH_SIZE_MB = 2048 # TODO Fix
+ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
+$(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
+endif
 endif
 
 # Configure external flash size in MB (Megabytes)
@@ -81,12 +91,6 @@ else
 	COMPRESS_PARAM := --compress=$(COMPRESS)
 endif
 
-ifneq ($(SD_CARD),0)
-ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
-$(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
-endif
-endif
-
 # Reset the DBGMCU configuration register (DBGMCU_CR) after flashing
 # Set to 0 to keep the clocks running when suspended (makes debugging easier)
 RESET_DBGMCU ?= 1
@@ -104,9 +108,7 @@ PYTHON3 ?= /usr/bin/env python3
 # Build path
 BUILD_DIR ?= build
 
-ifeq ($(SD_CARD),0)
-C_SOURCES += Core/Src/gw_flash.c
-else
+ifneq ($(SD_CARD),0)
 C_SOURCES += \
   Core/Src/gw_sd.c \
   Core/src/softspi.c
@@ -330,6 +332,7 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 LDFLAGS += -Wl,--defsym=__EXTFLASH_OFFSET__=$(EXTFLASH_OFFSET)
 LDFLAGS += -Wl,--defsym=__EXTFLASH_TOTAL_LENGTH__=$(EXTFLASH_SIZE)
 LDFLAGS += -Wl,--defsym=ENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT)
+LDFLAGS += -Wl,--defsym=SD_CARD=$(SD_CARD)
 
 ifeq ($(INTFLASH_BANK), 1)
 	INTFLASH_ADDRESS = 0x08000000
@@ -397,7 +400,7 @@ $(BUILD_DIR)/rom_files.txt: FORCE | $(BUILD_DIR)
 
 $(BUILD_DIR)/roms.a: $(BUILD_DIR)/rom_files.txt parse_roms.py
 	$(V)$(ECHO) [ PYTHON3 ] $(notdir $<)
-	$(V)$(PYTHON3) parse_roms.py --flash-size $(EXTFLASH_SIZE) $(SAVE_PARAM) $(COMPRESS_PARAM)
+	$(V)$(PYTHON3) parse_roms.py --flash-size $(EXTFLASH_SIZE) $(SAVE_PARAM) $(COMPRESS_PARAM) $(SD_CARD_PARAM)
 
 $(BUILD_DIR)/config.h $(BUILD_DIR)/saveflash.ld &: $(BUILD_DIR)/roms.a
 	$(V)/bin/sh -c true
@@ -464,7 +467,9 @@ $(BUILD_DIR)/%.o: %.s Makefile.common Makefile $(BUILD_DIR)/config.h | $(BUILD_D
 $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(NES_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(GW_OBJECTS) Makefile.common Makefile $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
 	$(V)$(CC) $(OBJECTS) $(NES_OBJECTS) $(GNUBOY_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(GW_OBJECTS) $(LDFLAGS) -o $@
+ifeq ($(SD_CARD),0)
 	$(V)./scripts/extflash_size.sh $@
+endif
 
 $(BUILD_DIR)/core/%.o: %.c Makefile Makefile.common $(SDK_HEADERS) $(BUILD_DIR)/config.h | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC core ] $(notdir $<)

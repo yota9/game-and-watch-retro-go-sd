@@ -245,9 +245,9 @@ void store_erase(const uint8_t *flash_ptr, uint32_t size)
     size += 0x1000 - (size & 0xfff);
   }
 
-  OSPI_DisableMemoryMappedMode();
-  OSPI_EraseSync(save_address, size);
-  OSPI_EnableMemoryMappedMode();
+  get_flash_ctx()->DisableMemoryMappedMode();
+  get_flash_ctx()->Erase(save_address, size);
+  get_flash_ctx()->EnableMemoryMappedMode();
 }
 
 void store_save(const uint8_t *flash_ptr, const uint8_t *data, size_t size)
@@ -272,9 +272,9 @@ void store_save(const uint8_t *flash_ptr, const uint8_t *data, size_t size)
 
   store_erase(flash_ptr, size);
 
-  OSPI_DisableMemoryMappedMode();
-  OSPI_Program(save_address, data, size);
-  OSPI_EnableMemoryMappedMode();
+  get_flash_ctx()->DisableMemoryMappedMode();
+  get_flash_ctx()->Write(save_address, data, size);
+  get_flash_ctx()->EnableMemoryMappedMode();
 }
 
 void boot_magic_set(uint32_t magic)
@@ -331,17 +331,6 @@ uint32_t GW_GetBootButtons(void)
   return boot_buttons;
 }
 
-// Workaround for being able to run with -D_FORTIFY_SOURCE=1
-static void memcpy_no_check(uint32_t *dst, uint32_t *src, size_t len)
-{
-  assert((len & 0b11) == 0);
-
-  uint32_t *end = dst + len / 4;
-  while (dst != end) {
-    *(dst++) = *(src++);
-  }
-}
-
 void wdog_enable()
 {
   MX_WWDG1_Init();
@@ -353,6 +342,47 @@ void wdog_refresh()
   if (wdog_enabled) {
     HAL_WWDG_Refresh(&hwwdg1);
   }
+}
+
+void switch_ospi_gpio(uint8_t ToOspi) {
+  static uint8_t IsOspi = true;
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  if (IsOspi == ToOspi)
+    return;
+
+  if (ToOspi) {
+    if (HAL_OSPI_Init(&hospi1) != HAL_OK)
+      Error_Handler();
+  } else {
+    HAL_OSPI_DeInit(&hospi1);
+
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(GPIOE, GPIO_FLASH_NCS_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_FLASH_MOSI_Pin|GPIO_FLASH_CLK_Pin, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin : GPIO_FLASH_NCS_Pin */
+    GPIO_InitStruct.Pin = GPIO_FLASH_NCS_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(GPIO_FLASH_NCS_GPIO_Port, &GPIO_InitStruct);
+
+    /*Configure GPIO pins : GPIO_FLASH_MOSI_Pin GPIO_FLASH_CLK_Pin */
+    GPIO_InitStruct.Pin = GPIO_FLASH_MOSI_Pin|GPIO_FLASH_CLK_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /*Configure GPIO pins : GPIO_FLASH_MISO_Pin */
+    GPIO_InitStruct.Pin = GPIO_FLASH_MISO_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIO_FLASH_MISO_GPIO_Port, &GPIO_InitStruct);
+  }
+
+  IsOspi = ToOspi;
 }
 
 /* USER CODE END 0 */
@@ -492,37 +522,22 @@ int main(void)
   SCB_EnableICache();
   SCB_EnableDCache();
 
-  // Initialize the external flash
+  // Initialize the external flash and sd
+#if SD_CARD != 0
+  SdCtx.Init(NULL);
+#endif // SD_CARD
 
-  OSPI_Init(&hospi1);
+  FlashCtx.Init(&hospi1);
 
   // Copy instructions and data from extflash to axiram
-  void *copy_areas[3];
-
-  copy_areas[0] = &_siramdata;  // 0x90000000
-  copy_areas[1] = &__ram_exec_start__;  // 0x24000000
-  copy_areas[2] = &__ram_exec_end__;  // 0x24000000 + length
-#if SD_CARD != 0
-  if (copy_areas[2] - copy_areas[1]) {
-    printf("FIXME copy 1\n");
-    abort();
-  }
-#endif
-  memcpy_no_check(copy_areas[1], copy_areas[0], copy_areas[2] - copy_areas[1]);
+  get_flash_ctx()->Read((uint32_t)&_siramdata, &__ram_exec_start__,
+                        (uintptr_t)&__ram_exec_end__ -
+                        (uintptr_t)&__ram_exec_start__);
 
   // Copy ITCRAM HOT section
-  static uint32_t copy_areas2[4] __attribute__((used));
-  copy_areas2[0] = (uint32_t) &_sitcram_hot;
-  copy_areas2[1] = (uint32_t) &__itcram_hot_start__;
-  copy_areas2[2] = (uint32_t) &__itcram_hot_end__;
-  copy_areas2[3] = copy_areas2[2] - copy_areas2[1];
-#if SD_CARD != 0
-  if (copy_areas2[3]) {
-    printf("FIXME copy 2\n");
-    abort();
-  }
-#endif
-  memcpy_no_check((uint32_t *) copy_areas2[1], (uint32_t *) copy_areas2[0], copy_areas2[3]);
+  get_flash_ctx()->Read((uint32_t)&_sitcram_hot,  &__itcram_hot_start__,
+                        (uintptr_t)&__itcram_hot_end__ -
+                        (uintptr_t)&__itcram_hot_start__);
 
   bq24072_init();
 
@@ -635,10 +650,8 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
   PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
   PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
-#if SD_CARD == 0
   PeriphClkInitStruct.PeriphClockSelection |= RCC_PERIPHCLK_OSPI;
   PeriphClkInitStruct.OspiClockSelection = RCC_OSPICLKSOURCE_CLKP;
-#endif // !SD_CARD
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_CLKP;
@@ -907,7 +920,6 @@ static void MX_OCTOSPI1_Init(void)
 {
 
   /* USER CODE BEGIN OCTOSPI1_Init 0 */
-#if SD_CARD == 0
 
   /* USER CODE END OCTOSPI1_Init 0 */
 
@@ -946,7 +958,7 @@ static void MX_OCTOSPI1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN OCTOSPI1_Init 2 */
-#endif // !SD_CARD
+
   /* USER CODE END OCTOSPI1_Init 2 */
 
 }
@@ -1209,13 +1221,9 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_SET);
-#if SD_CARD != 0
-  HAL_GPIO_WritePin(GPIOB, GPIO_OSPI_MOSI_Pin|GPIO_OSPI_CLK_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOE, GPIO_OSPI_NCS_Pin, GPIO_PIN_SET);
-#endif // SD_CARD
 
   /*Configure GPIO pin Output Level */
-  /* E8=CE_n USB Charger  */ 
+  /* E8=CE_n USB Charger  */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
@@ -1271,23 +1279,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-#if SD_CARD != 0
-  /*Configure GPIO pin : GPIO_OSPI_NCS_Pin */
-  GPIO_InitStruct.Pin = GPIO_OSPI_NCS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIO_OSPI_NCS_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : GPIO_OSPI_MOSI_Pin GPIO_OSPI_CLK_Pin */
-  GPIO_InitStruct.Pin = GPIO_OSPI_MOSI_Pin|GPIO_OSPI_CLK_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-#endif // SD_CARD
-
   /*Configure GPIO pin : PB12 */
   GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -1306,9 +1297,6 @@ static void MX_GPIO_Init(void)
                            BTN_Up_Pin BTN_B_Pin */
   GPIO_InitStruct.Pin = BTN_A_Pin|BTN_Left_Pin|BTN_Down_Pin|BTN_Right_Pin
                           |BTN_Up_Pin|BTN_B_Pin;
-#if SD_CARD != 0
-  GPIO_InitStruct.Pin |= GPIO_OSPI_MISO_Pin;
-#endif // SD_CARD
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
@@ -1351,15 +1339,6 @@ void MPU_Config(void)
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-#if SD_CARD != 0
-  /* Make sd card region non accessible */
-  MPU_InitStruct.BaseAddress = (uintptr_t)&__EXTFLASH_BASE__;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_256MB;
-  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-#endif // SD_CARD
 
   if (__builtin_popcount((size_t)&__NULLPTR_LENGTH__) == 1) {
     /* Only continue if a single bit set in __NULLPTR_LENGTH__.

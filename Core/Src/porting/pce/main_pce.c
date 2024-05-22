@@ -162,6 +162,9 @@ static bool SaveState(char *pathName) {
 }
 
 static bool LoadState(char *pathName) {
+#if SD_CARD != 0
+    assert(!"Load state not implemented");
+#endif
     uint8_t *pce_save_buf = (uint8_t *)ACTIVE_FILE->save_address;
     if (ACTIVE_FILE->save_size==0) return true;
     sprintf(pce_log,"%ld",ACTIVE_FILE->save_size);
@@ -197,11 +200,14 @@ static bool LoadState(char *pathName) {
 size_t
 pce_osd_getromdata(unsigned char **data)
 {
-    /* src pointer to the ROM data in the external flash (raw or LZ4) */
+    /* ROM_DATA is set at emulator_start */
     const unsigned char *src = ROM_DATA;
+
+    wdog_refresh();
+
+#if SD_CARD == 0
     unsigned char *dest = (unsigned char *)&_PCE_ROM_UNPACK_BUFFER;
     uint32_t available_size = (uint32_t)&_PCE_ROM_UNPACK_BUFFER_SIZE;
-
     if (memcmp(&src[0], LZ4_MAGIC, LZ4_MAGIC_SIZE) == 0) {
         /* dest pointer to the ROM data in the internal RAM (raw) */
         uint32_t lz4_original_size;
@@ -243,10 +249,11 @@ pce_osd_getromdata(unsigned char **data)
         n_decomp_bytes = lzma_inflate(dest, available_size, src, ROM_DATA_LENGTH);
         *data = dest;
         return n_decomp_bytes;
-    } else {
-        *data = (unsigned char *)ROM_DATA;
-        return ROM_DATA_LENGTH;
     }
+#endif // !SD_CARD
+
+    *data = (unsigned char *)src;
+    return ROM_DATA_LENGTH;
 }
 
 void LoadCartPCE() {

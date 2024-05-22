@@ -44,10 +44,10 @@ const rom_system_t *rom_manager_system(const rom_manager_t *mgr, char *name) {
     return NULL;
 }
 
-void rom_manager_set_active_file(retro_emulator_file_t *file)
+void rom_manager_set_active_file(retro_emulator_file_t *file, uint8_t *address)
 {
     ACTIVE_FILE = file;
-    ROM_DATA = file->address;
+    ROM_DATA = address;
     ROM_EXT = file->ext;
     ROM_DATA_LENGTH = file->size;
 }
