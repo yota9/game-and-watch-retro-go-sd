@@ -8,7 +8,7 @@
 
 struct FlashCtx {
     void (*Init)(OSPI_HandleTypeDef *hospi);
-    void (*Write)(uint32_t address, const uint8_t *buffer, size_t buffer_size);
+    void (*Write)(uint32_t address, const void *buffer, size_t buffer_size);
     void (*Read)(uint32_t address, void *buffer, size_t buffer_size);
     void (*EnableMemoryMappedMode)(void);
     void (*DisableMemoryMappedMode)(void);

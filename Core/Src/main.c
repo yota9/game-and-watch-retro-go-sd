@@ -223,10 +223,6 @@ void store_erase(const uint8_t *flash_ptr, uint32_t size)
 {
   // Only allow addresses in the areas meant for erasing and writing.
   printf(__FUNCTION__);
-  //TODO
-#if SD_CARD != 0
-  return;
-#endif
 
   assert(
     ((flash_ptr >= &__SAVEFLASH_START__)   && ((flash_ptr + size) <= &__SAVEFLASH_END__)) ||
@@ -254,8 +250,8 @@ void store_save(const uint8_t *flash_ptr, const uint8_t *data, size_t size)
 {
   // Temporary solution to make things work with flash with 256K erase pages
     printf(__FUNCTION__);
-    //TODO
-#if defined(DISABLE_STORE) || SD_CARD != 0
+
+#if defined(DISABLE_STORE)
   return;
 #endif
 
@@ -265,10 +261,12 @@ void store_save(const uint8_t *flash_ptr, const uint8_t *data, size_t size)
   // Only allow 4kB aligned pointers
   assert((save_address & (4*1024 - 1)) == 0);
 
+#if SD_CARD == 0
   int diff = memcmp((void*)flash_ptr, data, size);
   if (diff == 0) {
     return;
   }
+#endif // !SD_CARD
 
   store_erase(flash_ptr, size);
 

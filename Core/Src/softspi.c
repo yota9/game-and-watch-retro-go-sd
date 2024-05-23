@@ -32,7 +32,7 @@ static void delay_us(uint32_t usec) {
     }
 }
 
-static void __SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData,
+static void __SoftSpi_WriteRead(SoftSPI *spi, const uint8_t *txData, uint8_t *rxData,
                                 uint32_t len, bool txDummy, bool csEnable) {
     int i, j;
     uint8_t txBit, rxBit;
@@ -78,7 +78,7 @@ static void __SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData,
                           spi->csIsInverted ? GPIO_PIN_RESET : GPIO_PIN_SET);
 }
 
-void SoftSpi_WriteRead(SoftSPI *spi, uint8_t *txData, uint8_t *rxData, uint32_t len) {
+void SoftSpi_WriteRead(SoftSPI *spi, const uint8_t *txData, uint8_t *rxData, uint32_t len) {
     __SoftSpi_WriteRead(spi, txData, rxData, len, false, !!spi->cs.port);
 }
 

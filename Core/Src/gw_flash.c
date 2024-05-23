@@ -638,9 +638,10 @@ static void OSPI_PageProgram(uint32_t address,
 }
 
 static void OSPI_Program(uint32_t address,
-                  const uint8_t *buffer,
+                  const void *pbuffer,
                   size_t buffer_size)
 {
+    const uint8_t *buffer = (uint8_t *)pbuffer;
     unsigned iterations = (buffer_size + 255) / 256;
     unsigned dest_page = address / 256;
 

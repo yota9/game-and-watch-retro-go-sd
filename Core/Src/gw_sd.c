@@ -45,6 +45,8 @@ static struct {
 // SD card responses
 // =============================================================================
 
+#define START_BLOCK_TOKEN 0xFE
+
 typedef bool (*response_fn)(uint8_t *r);
 
 #define R1_IDLE 0ULL
@@ -133,6 +135,7 @@ struct response {
 #define SD_GO_IDLE_STATE_CMD 0
 #define SD_SEND_INTERFACE_COND_CMD 8
 #define SD_READ_SINGLE_BLOCK_CMD 17
+#define SD_WRITE_SINGLE_BLOCK_CMD 24
 #define SD_SEND_OP_COND_ACMD 41
 #define SD_APP_CMD 55
 #define SD_READ_OCR_CMD 58
@@ -141,6 +144,7 @@ enum cmd_list {
     GO_IDLE_STATE = 0,
     SEND_INTERFACE_COND,
     READ_SINGLE_BLOCK,
+    WRITE_SINGLE_BLOCK,
     SEND_OP_COND_ACMD,
     APP_CMD,
     READ_OCR,
@@ -154,6 +158,7 @@ static struct sd_cmd {
     [GO_IDLE_STATE] = { SD_GO_IDLE_STATE_CMD, 0x95, responseR1 },
     [SEND_INTERFACE_COND] = { SD_SEND_INTERFACE_COND_CMD, 0x86, responseCMD8 },
     [READ_SINGLE_BLOCK] = { SD_READ_SINGLE_BLOCK_CMD, 0x0, responseR1 },
+    [WRITE_SINGLE_BLOCK] = { SD_WRITE_SINGLE_BLOCK_CMD, 0x0, responseR1 },
     [SEND_OP_COND_ACMD] = { SD_SEND_OP_COND_ACMD, 0x0, responseR1 },
     [APP_CMD] = { SD_APP_CMD, 0x0, responseR1 },
     [READ_OCR] = { SD_READ_OCR_CMD, 0x0, responseR3R7 },
@@ -167,6 +172,8 @@ static void ReadSR(uint8_t dest[1]) { *dest = 0; }
 static void ReadCR(uint8_t dest[1]) { *dest = 0; }
 static const char* GetName(void) { return "Sd"; }
 static uint32_t GetSmallestEraseSize(void) { return 1; }
+void Format (void) {}
+void Erase(uint32_t address, uint32_t size) {}
 static void ReadId(uint8_t dest[3]) {
     dest[0] = 0;
     dest[1] = 0;
@@ -198,8 +205,8 @@ static struct response send_cmd(enum cmd_list cmd, uint32_t arg) {
 static void send_read_cmd(uint32_t addr) {
     uint8_t ret;
 
-    assert((addr & (BLOCK_SIZE - 1)) == 0 && "Address is not aligned");
     addr -= SD_BASE_ADDRESS;
+    assert((addr & (BLOCK_SIZE - 1)) == 0 && "Address is not aligned");
     if (sd.ccs)
         addr /= BLOCK_SIZE;
 
@@ -211,72 +218,147 @@ static void send_read_cmd(uint32_t addr) {
     // We would fail on watchdog if somthing is wrong here
     do {
         SoftSpi_WriteDummyRead(sd.spi, &ret, 1);
-    } while(ret != 0xFE);
+    } while(ret != START_BLOCK_TOKEN);
 }
 
-static void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size) {
+static void finish_read_cmd(void) {
+    // Skip checksum reading
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 2);
+}
+
+static void send_write_cmd(uint32_t addr) {
+    struct response response;
+    const uint8_t start_block_token = START_BLOCK_TOKEN;
+
+    assert((addr & (BLOCK_SIZE - 1)) == 0 && "Address is not aligned");
+    if (sd.ccs)
+        addr /= BLOCK_SIZE;
+
+    // We would fail on watchdog if something is wrong here
+    do {
+        response = send_cmd(WRITE_SINGLE_BLOCK, addr);
+    } while (response.r0);
+
+    // Send dummy pre-send byte and start block token
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 1);
+    SoftSpi_WriteRead(sd.spi, &start_block_token, NULL, 1);
+}
+
+static void finish_write_cmd(void) {
+    uint8_t rbyte;
+
+    // Dummy crc
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 2);
+
+    // We would fail on watchdog if something is wrong here
+    // Read status byte
+    do {
+        SoftSpi_WriteDummyRead(sd.spi, &rbyte, 1);
+    } while(rbyte == 0xFF);
+
+    if ((rbyte & 0xF) != 0x05) {
+        printf("SD: Failed to write data block\n");
+        abort();
+    }
+
+    // Wait for data to be written
+    do {
+        SoftSpi_WriteDummyRead(sd.spi, &rbyte, 1);
+    } while (rbyte == 0x00);
+}
+
+static void sd_card_read_write(uint32_t address, void *pbuffer, size_t buffer_size, bool is_read) {
     uint8_t *buffer = (uint8_t *)pbuffer;
     const uint32_t start_address = address & ~(BLOCK_SIZE - 1);
 
     if (!buffer_size)
         return;
 
-#define SKIP_CHECKSUM() \
-    SoftSpi_WriteDummyRead(sd.spi, NULL, 1); \
-    SoftSpi_WriteDummyRead(sd.spi, NULL, 1)
-
     switch_ospi_gpio(false);
 
-    // Read first unaligned block
+    // Read/write first unaligned block
     if (address != start_address) {
-        send_read_cmd(start_address);
+        if (is_read)
+            send_read_cmd(start_address);
+        else
+            send_write_cmd(start_address);
 
         // Skip bytes before target address
         SoftSpi_WriteDummyRead(sd.spi, NULL, address - start_address);
 
-        // Read buffer size or remaining bytes in block
+        // Read/write buffer size or remaining bytes in block
         const uint32_t next_block = start_address + BLOCK_SIZE;
-        const uint32_t bytes_to_read = MIN(buffer_size, next_block - address);
-        SoftSpi_WriteDummyRead(sd.spi, buffer, bytes_to_read);
-        buffer += bytes_to_read;
-        buffer_size -= bytes_to_read;
-        address += bytes_to_read;
+        const uint32_t bytes_to_rw = MIN(buffer_size, next_block - address);
+        if (is_read)
+            SoftSpi_WriteDummyRead(sd.spi, buffer, bytes_to_rw);
+        else
+            SoftSpi_WriteRead(sd.spi, buffer, NULL, bytes_to_rw);
+
+        buffer += bytes_to_rw;
+        buffer_size -= bytes_to_rw;
+        address += bytes_to_rw;
 
         // Skip remaining bytes if buffer_size is 0
         SoftSpi_WriteDummyRead(sd.spi, NULL, next_block - address);
         address = next_block;
 
-        SKIP_CHECKSUM();
+        if (is_read)
+            finish_read_cmd();
+        else
+            finish_write_cmd();
     }
 
-    // Read data in blocks
+    // Read/write data in blocks
     while (buffer_size >= BLOCK_SIZE) {
-        send_read_cmd(address);
-        address += BLOCK_SIZE;
+        if (is_read) {
+            send_read_cmd(address);
+            SoftSpi_WriteDummyRead(sd.spi, buffer, BLOCK_SIZE);
+            finish_read_cmd();
+        } else {
+            send_write_cmd(address);
+            SoftSpi_WriteRead(sd.spi, buffer, NULL, BLOCK_SIZE);
+            finish_write_cmd();
+        }
 
-        SoftSpi_WriteDummyRead(sd.spi, buffer, BLOCK_SIZE);
+        address += BLOCK_SIZE;
         buffer += BLOCK_SIZE;
         buffer_size -= BLOCK_SIZE;
-
-        SKIP_CHECKSUM();
     }
 
-    // Read remaining bytes
+    // Read/write remaining bytes
     if (buffer_size) {
         const uint32_t next_block = address + BLOCK_SIZE;
-        send_read_cmd(address);
-        SoftSpi_WriteDummyRead(sd.spi, buffer, buffer_size);
+
+        if (is_read) {
+            send_read_cmd(address);
+            SoftSpi_WriteDummyRead(sd.spi, buffer, buffer_size);
+        } else {
+            send_write_cmd(address);
+            SoftSpi_WriteRead(sd.spi, buffer, NULL, buffer_size);
+        }
+
         address += buffer_size;
 
         // Skip remaining bytes
         SoftSpi_WriteDummyRead(sd.spi, NULL, next_block - address);
 
-        SKIP_CHECKSUM();
+        if (is_read)
+            finish_read_cmd();
+        else
+            finish_write_cmd();
     }
 
     switch_ospi_gpio(true);
+}
 
-#undef SKIP_CHECKSUM
+static void sd_card_read(uint32_t address, void *pbuffer, size_t buffer_size)
+{
+    sd_card_read_write(address, pbuffer, buffer_size, true);
+}
+
+static void sd_card_write(uint32_t address, const void *pbuffer, size_t buffer_size)
+{
+    sd_card_read_write(address, (void *)pbuffer, buffer_size, false);
 }
 
 static void Init(OSPI_HandleTypeDef *hospi) {
@@ -333,9 +415,12 @@ static void Init(OSPI_HandleTypeDef *hospi) {
 
 struct FlashCtx SdCtx = {
     .Init = Init,
+    .Write = sd_card_write,
     .Read = sd_card_read,
     .EnableMemoryMappedMode = EnableMemoryMappedMode,
     .DisableMemoryMappedMode = DisableMemoryMappedMode,
+    .Format = Format,
+    .Erase = Erase,
     .ReadId = ReadId,
     .ReadSR = ReadSR,
     .ReadCR = ReadCR,
