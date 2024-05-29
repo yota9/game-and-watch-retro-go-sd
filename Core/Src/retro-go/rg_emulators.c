@@ -400,33 +400,8 @@ static void load_rom(retro_emulator_file_t *file, uint8_t *ram_buffer, uint32_t 
         SdCtx.Read(src, ram_buffer, rom_size);
         rom_address = ram_buffer;
     } else {
-        const int block_length = 512;
-        uint32_t addr = 0;
-        assert(ram_length >= block_length);
-        if (!FlashCtx.Presented) {
-            printf("Unable to load the game, no flash found");
-            abort();
-        }
-
-        if ((size_t)&__EXTFLASH_TOTAL_LENGTH__ < rom_size) {
-            printf("Flash is too small to load a game\n");
-            abort();
-        }
-
-        FlashCtx.DisableMemoryMappedMode();
-        while (rom_size > 0) {
-            if (addr % 0x1000 == 0)
-                FlashCtx.Erase(addr, 0x1000);
-
-            SdCtx.Read(src, ram_buffer, block_length);
-            FlashCtx.Write(addr, ram_buffer, block_length);
-            src += block_length;
-            addr += block_length;
-            rom_size -= block_length;
-        }
-
-        FlashCtx.EnableMemoryMappedMode();
-        rom_address = (uint8_t *)&__EXTFLASH_BASE__;
+        rom_address = (uint8_t *)copy_sd_to_flash(src, rom_size,
+                                                  ram_buffer, ram_length);
     }
 #endif //SD_CARD
 
@@ -485,7 +460,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
       app_main_pce(load_state, start_paused);
 #endif
   }
-    
+
 }
 
 void emulators_init()
@@ -502,7 +477,7 @@ void emulators_init()
 #ifdef ENABLE_EMULATOR_NES
     add_emulator("Nintendo Entertainment System", "nes", "nes", "nofrendo-go", 16, header_nes);
 #endif
-    
+
 #ifdef ENABLE_EMULATOR_SMS
     add_emulator("Sega Master System", "sms", "sms", "smsplusgx-go", 0, header_sms);
 #endif

@@ -23,7 +23,13 @@ struct FlashCtx {
 };
 
 extern struct FlashCtx FlashCtx;
+
+#if SD_CARD != 0
 extern struct FlashCtx SdCtx;
+
+uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,
+                          uint8_t *ram_buffer, uint32_t ram_buffer_size);
+#endif // SD_CARD
 
 __attribute__((always_inline))
 static inline struct FlashCtx *get_flash_ctx(void) {

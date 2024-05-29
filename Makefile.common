@@ -54,6 +54,7 @@ endif
 ifneq ($(SD_CARD),0)
 SD_CARD_PARAM := --sd True
 EXTFLASH_SIZE_MB = 2048 # TODO Fix
+SPI_FLASH_SIZE_MB ?= 1
 ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
 $(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
 endif
@@ -61,9 +62,11 @@ endif
 
 # Configure external flash size in MB (Megabytes)
 EXTFLASH_SIZE_MB ?= 1
+SPI_FLASH_SIZE_MB ?= $(EXTFLASH_SIZE_MB)
 INTFLASH_BANK ?= 1
 
 EXTFLASH_SIZE ?= $(shell echo "$$(( $(EXTFLASH_SIZE_MB) * 1024 * 1024 ))")
+SPI_FLASH_SIZE ?= $(shell echo "$$(( $(SPI_FLASH_SIZE_MB) * 1024 * 1024 ))")
 
 EXTFLASH_FORCE_SPI ?= 0
 
@@ -111,6 +114,7 @@ BUILD_DIR ?= build
 ifneq ($(SD_CARD),0)
 C_SOURCES += \
   Core/Src/gw_sd.c \
+  Core/Src/flash_alloc.c \
   Core/src/softspi.c
 endif
 
@@ -289,7 +293,8 @@ C_DEFS +=  \
 -DDEBUG_RG_ALLOC \
 -DSTATE_SAVING=$(STATE_SAVING) \
 -DENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT) \
--DSD_CARD=$(SD_CARD)
+-DSD_CARD=$(SD_CARD) \
+-D__SPI_FLASH_SIZE__=$(SPI_FLASH_SIZE)UL \
 -DGNW_TARGET_MARIO=$(GNW_TARGET_MARIO) \
 -DGNW_TARGET_ZELDA=$(GNW_TARGET_ZELDA)
 
@@ -332,7 +337,6 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 LDFLAGS += -Wl,--defsym=__EXTFLASH_OFFSET__=$(EXTFLASH_OFFSET)
 LDFLAGS += -Wl,--defsym=__EXTFLASH_TOTAL_LENGTH__=$(EXTFLASH_SIZE)
 LDFLAGS += -Wl,--defsym=ENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT)
-LDFLAGS += -Wl,--defsym=SD_CARD=$(SD_CARD)
 
 ifeq ($(INTFLASH_BANK), 1)
 	INTFLASH_ADDRESS = 0x08000000
