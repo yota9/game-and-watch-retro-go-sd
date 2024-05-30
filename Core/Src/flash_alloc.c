@@ -54,7 +54,7 @@ static inline uint32_t get_flash_entries_off(void)
 static inline const struct flash_entries *get_flash_entries(void)
 {
     return (struct flash_entries *)(get_flash_entries_off() +
-                                    (uint32_t)&__EXTFLASH_BASE__);
+                                    __SPI_FLASH_BASE__);
 }
 
 static void flash_alloc_init(void)
@@ -210,7 +210,7 @@ uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,
     entry = is_loaded(blocks_needed, tag);
     if (entry) {
         printf("Data is already loaded in flash\n");
-        return ((uint32_t)&__EXTFLASH_BASE__ + entry->block * STORE_BLOCK_SIZE);
+        return (__SPI_FLASH_BASE__ + entry->block * STORE_BLOCK_SIZE);
     }
 
     entry = allocate_flash(blocks_needed, tag);
@@ -229,5 +229,5 @@ uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,
     }
 
     FlashCtx.EnableMemoryMappedMode();
-    return ((uint32_t)&__EXTFLASH_BASE__ + entry->block * STORE_BLOCK_SIZE);
+    return (__SPI_FLASH_BASE__ + entry->block * STORE_BLOCK_SIZE);
 }

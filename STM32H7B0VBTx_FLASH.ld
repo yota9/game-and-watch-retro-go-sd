@@ -74,7 +74,7 @@ __FLASH_LENGTH__    = 128K;
 
 __EXTFLASH_TOTAL_LENGTH__ = DEFINED(__EXTFLASH_TOTAL_LENGTH__) ? __EXTFLASH_TOTAL_LENGTH__ : 1024K;
 __EXTFLASH_OFFSET__ = DEFINED(__EXTFLASH_OFFSET__) ? __EXTFLASH_OFFSET__ : 0;
-__EXTFLASH_BASE__ = 0x90000000;  /* Beginning of addressable extflash addresses */
+__EXTFLASH_BASE__ = __SD_CARD__ ? 0 : 0x90000000;  /* Beginning of addressable extflash addresses */
 __EXTFLASH_START__ = __EXTFLASH_BASE__ + __EXTFLASH_OFFSET__;  /* Beginning of where we're going to store emulator and rom data */
 
 __RAM_START__       = 0x24000000;

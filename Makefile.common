@@ -53,8 +53,9 @@ endif
 
 ifneq ($(SD_CARD),0)
 SD_CARD_PARAM := --sd True
-EXTFLASH_SIZE_MB = 2048 # TODO Fix
-SPI_FLASH_SIZE_MB ?= 1
+ifeq ($(SPI_FLASH_SIZE_MB),)
+$(error Set SPI_FLASH_SIZE_MB when using SD card)
+endif
 ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
 $(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
 endif
@@ -295,6 +296,7 @@ C_DEFS +=  \
 -DENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT) \
 -DSD_CARD=$(SD_CARD) \
 -D__SPI_FLASH_SIZE__=$(SPI_FLASH_SIZE)UL \
+-D__SPI_FLASH_BASE__=0x90000000UL \
 -DGNW_TARGET_MARIO=$(GNW_TARGET_MARIO) \
 -DGNW_TARGET_ZELDA=$(GNW_TARGET_ZELDA)
 
@@ -337,6 +339,7 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 LDFLAGS += -Wl,--defsym=__EXTFLASH_OFFSET__=$(EXTFLASH_OFFSET)
 LDFLAGS += -Wl,--defsym=__EXTFLASH_TOTAL_LENGTH__=$(EXTFLASH_SIZE)
 LDFLAGS += -Wl,--defsym=ENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT)
+LDFLAGS += -Wl,--defsym=__SD_CARD__=$(SD_CARD)
 
 ifeq ($(INTFLASH_BANK), 1)
 	INTFLASH_ADDRESS = 0x08000000
@@ -576,7 +579,7 @@ flash_extflash: $(BUILD_DIR)/$(TARGET)_extflash.bin
 ifeq ($(SD_CARD),0)
 	$(FLASH_MULTI) $< $(EXTFLASH_OFFSET)
 else
-	dd if=$< of=$(SD_CARD) bs=512 oflag=direct seek=$$(($(EXTFLASH_OFFSET) / 512))
+	$(info flash SD card with cmd: dd if=$< of=/dev/sd* bs=512 oflag=direct seek=$(($(EXTFLASH_OFFSET) / 512)))
 endif
 .PHONY: flash_extflash
 
@@ -587,7 +590,7 @@ flash_test: flash_intflash
 # Programs both the external and internal flash.
 flash: CheckTools CheckDirtySubmodules
 	$(V)$(MAKE) flash_intflash
-#	$(V)$(MAKE) flash_extflash
+	$(V)$(MAKE) flash_extflash
 	$(V)$(RESET_DBGMCU_CMD)
 .PHONY: flash
 
