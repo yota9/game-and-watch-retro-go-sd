@@ -53,6 +53,8 @@ endif
 
 ifneq ($(SD_CARD),0)
 SD_CARD_PARAM := --sd True
+# Not supporting compression for SD card
+COMPRESS := 0
 ifeq ($(SPI_FLASH_SIZE_MB),)
 $(error Set SPI_FLASH_SIZE_MB when using SD card)
 endif
@@ -87,9 +89,6 @@ endif
 # Compress supported ROMs by default. Set to 0 to disable.
 COMPRESS ?= lzma
 ifeq ($(COMPRESS),0)
-	COMPRESS_PARAM :=
-else ifneq ($(SD_CARD),0)
-# Not supporting compression for SD card
 	COMPRESS_PARAM :=
 else
 	COMPRESS_PARAM := --compress=$(COMPRESS)
@@ -576,11 +575,7 @@ flash_intflash_nc: $(BUILD_DIR)/$(TARGET)_intflash.bin
 .PHONY: flashx
 
 flash_extflash: $(BUILD_DIR)/$(TARGET)_extflash.bin
-ifeq ($(SD_CARD),0)
 	$(FLASH_MULTI) $< $(EXTFLASH_OFFSET)
-else
-	$(info flash SD card with cmd: dd if=$< of=/dev/sd* bs=512 oflag=direct seek=$(($(EXTFLASH_OFFSET) / 512)))
-endif
 .PHONY: flash_extflash
 
 flash_test: flash_intflash

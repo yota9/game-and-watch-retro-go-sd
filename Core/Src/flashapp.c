@@ -42,6 +42,14 @@ static const int font_width = 8; //odroid_overlay_get_font_width();
 #define PROGRESS_WIDTH    (4 * (PROGRESS_X_OFFSET * 2))
 #define PROGRESS_HEIGHT   (2 * LIST_LINE_HEIGHT)
 
+#if SD_CARD == 0
+#  define EXT_FLASH_BASE 0x90000000UL
+#  define BLOCK_SIZE 256
+#else
+#  define EXT_FLASH_BASE 0x0UL
+#  define BLOCK_SIZE 512
+#endif  // !SD_CARD
+
 // TODO: Make this nicer
 extern OSPI_HandleTypeDef hospi1;
 
@@ -190,13 +198,15 @@ static bool validate_erased(uint32_t address, uint32_t size)
     assert((size & 0b11) == 0);
     assert((address & 0b11) == 0);
 
-    uint32_t *flash_ptr_u32 = (uint32_t *)(0x90000000 + address);
+#if SD_CARD == 0
+    uint32_t *flash_ptr_u32 = (uint32_t *)(EXT_FLASH_BASE + address);
 
     for (uint32_t i = 0; i < size / 4; i++) {
         if (flash_ptr_u32[i] != 0xffffffff) {
             return false;
         }
     }
+#endif // !SD_CARD
 
     return true;
 }
@@ -228,14 +238,18 @@ const uint32_t tests[][2] = {
 
 static uint32_t test_read(uint32_t addr, uint32_t len)
 {
-    const uint8_t *flash_ptr = (const uint8_t *) 0x90000000;
+    const uint8_t *flash_ptr = (const uint8_t *) EXT_FLASH_BASE + addr;
     uint32_t t0;
     uint32_t t1;
 
     t0 = HAL_GetTick();
     while (len != 0) {
         uint32_t chunk_len = (len > sizeof(emulator_framebuffer)) ? sizeof(emulator_framebuffer) : len;
+#if SD_CARD == 0
         memcpy(emulator_framebuffer, flash_ptr, chunk_len);
+#else
+        get_flash_ctx()->Read((uint32_t)flash_ptr, emulator_framebuffer, chunk_len);
+#endif
         flash_ptr += chunk_len;
         len -= chunk_len;
     }
@@ -246,7 +260,11 @@ static uint32_t test_read(uint32_t addr, uint32_t len)
 
 static void test_flash(flashapp_t *flashapp)
 {
-    const uint8_t *flash_ptr = (const uint8_t *) 0x90000000;
+#if SD_CARD != 0
+    return;
+#endif // SD_CARD
+
+    const uint8_t *flash_ptr = (const uint8_t *) EXT_FLASH_BASE;
     uint32_t address;
     uint32_t size;
     uint32_t start;
@@ -263,9 +281,9 @@ static void test_flash(flashapp_t *flashapp)
     // Erase 512kB at 0
     address = 0;
     size = rand_size;
-    FlashCtx.DisableMemoryMappedMode();
-    FlashCtx.Erase(address, size);
-    FlashCtx.EnableMemoryMappedMode();
+    get_flash_ctx()->DisableMemoryMappedMode();
+    get_flash_ctx()->Erase(address, size);
+    get_flash_ctx()->EnableMemoryMappedMode();
     assert(validate_erased(address, size));
 
     generate_random((uint32_t *) flash_buffer, rand_size, 0x12345678);
@@ -273,9 +291,9 @@ static void test_flash(flashapp_t *flashapp)
     // Write and verify 512kB random data
     address = 0;
     size = rand_size;
-    FlashCtx.DisableMemoryMappedMode();
-    FlashCtx.Write(address, &flash_buffer[address], size);
-    FlashCtx.EnableMemoryMappedMode();
+    get_flash_ctx()->DisableMemoryMappedMode();
+    get_flash_ctx()->Write(address, &flash_buffer[address], size);
+    get_flash_ctx()->EnableMemoryMappedMode();
 
     // Erase parts of the flash and verify that the non erased data is still intact
     for (int i = 0; i < ARRAY_SIZE(tests); i++) {
@@ -290,9 +308,9 @@ static void test_flash(flashapp_t *flashapp)
         assert(memcmp(&flash_ptr[start], &flash_buffer[start], size) == 0);
 
         // Erase
-        FlashCtx.DisableMemoryMappedMode();
-        FlashCtx.Erase(start, size);
-        FlashCtx.EnableMemoryMappedMode();
+        get_flash_ctx()->DisableMemoryMappedMode();
+        get_flash_ctx()->Erase(start, size);
+        get_flash_ctx()->EnableMemoryMappedMode();
 
         // Check that erased is actually erased
         assert(validate_erased(start, size));
@@ -398,7 +416,7 @@ static void flashapp_run(flashapp_t *flashapp)
         }
         break;
     case FLASHAPP_ERASE_NEXT:
-        FlashCtx.DisableMemoryMappedMode();
+        get_flash_ctx()->DisableMemoryMappedMode();
 
         if (program_erase) {
             if (program_erase_bytes == 0) {
@@ -407,7 +425,7 @@ static void flashapp_run(flashapp_t *flashapp)
                 flashapp->erase_address = program_address;
                 flashapp->erase_bytes_left = program_erase_bytes;
 
-                uint32_t smallest_erase = FlashCtx.GetSmallestEraseSize();
+                uint32_t smallest_erase = get_flash_ctx()->GetSmallestEraseSize();
 
                 if (flashapp->erase_address & (smallest_erase - 1)) {
                     sprintf(flashapp->tab.name, "** Address not aligned to smallest erase size! **");
@@ -433,10 +451,10 @@ static void flashapp_run(flashapp_t *flashapp)
         break;
     case FLASHAPP_ERASE:
         if (program_erase_bytes == 0) {
-            FlashCtx.Format();
+            get_flash_ctx()->Format();
             state_inc();
         } else {
-            FlashCtx.Erase(flashapp->erase_address, flashapp->erase_bytes_left);
+            get_flash_ctx()->Erase(flashapp->erase_address, flashapp->erase_bytes_left);
             flashapp->progress_max = 0;
             state_inc();
             flashapp->progress_value = flashapp->progress_max - flashapp->erase_bytes_left;
@@ -453,9 +471,9 @@ static void flashapp_run(flashapp_t *flashapp)
         break;
     case FLASHAPP_PROGRAM:
         if (flashapp->program_bytes_left > 0) {
-            uint32_t dest_page = flashapp->current_program_address / 256;
-            uint32_t bytes_to_write = flashapp->program_bytes_left > 256 ? 256 : flashapp->program_bytes_left;
-            FlashCtx.Write(dest_page * 256, flashapp->program_buf, bytes_to_write);
+            uint32_t dest_page = flashapp->current_program_address / BLOCK_SIZE;
+            uint32_t bytes_to_write = flashapp->program_bytes_left > BLOCK_SIZE ? BLOCK_SIZE : flashapp->program_bytes_left;
+            get_flash_ctx()->Write(dest_page * BLOCK_SIZE, flashapp->program_buf, bytes_to_write);
             flashapp->current_program_address += bytes_to_write;
             flashapp->program_buf += bytes_to_write;
             flashapp->program_bytes_left -= bytes_to_write;
@@ -466,13 +484,14 @@ static void flashapp_run(flashapp_t *flashapp)
         break;
     case FLASHAPP_CHECK_HASH_FLASH_NEXT:
         sprintf(flashapp->tab.name, "6. Checking hash in FLASH");
-        FlashCtx.EnableMemoryMappedMode();
+        get_flash_ctx()->EnableMemoryMappedMode();
         state_inc();
         break;
     case FLASHAPP_CHECK_HASH_FLASH:
         // Calculate sha256 hash of the FLASH.
+#if SD_CARD == 0
         sha256_to_string(program_calculated_sha256,
-                         (const BYTE*) (0x90000000 + program_address),
+                         (const BYTE*) (EXT_FLASH_BASE + program_address),
                          program_size);
 
         if (strncmp((char *)program_calculated_sha256, (char *)program_expected_sha256, 64) != 0) {
@@ -480,18 +499,19 @@ static void flashapp_run(flashapp_t *flashapp)
             sprintf(flashapp->tab.name, "*** Hash mismatch in FLASH ***");
             program_status = FLASHAPP_STATUS_BAD_HAS_FLASH;
             state_set(FLASHAPP_ERROR);
-        } else {
-            sprintf(flashapp->tab.name, "7. Hash OK in FLASH.");
+        }
 
-            if (program_chunk_idx != program_chunk_count) {
-                // More chunks will be programmed, skip the init state.
-                program_chunk_idx++;
-                state_set(FLASHAPP_IDLE);
-            } else {
-                sprintf(flashapp->tab.name, "Programming done!");
-                program_status = FLASHAPP_STATUS_DONE;
-                state_set(FLASHAPP_FINAL);
-            }
+        sprintf(flashapp->tab.name, "7. Hash OK in FLASH.");
+#endif // !SD_CARD
+
+        if (program_chunk_idx != program_chunk_count) {
+            // More chunks will be programmed, skip the init state.
+            program_chunk_idx++;
+            state_set(FLASHAPP_IDLE);
+        } else {
+            sprintf(flashapp->tab.name, "Programming done!");
+            program_status = FLASHAPP_STATUS_DONE;
+            state_set(FLASHAPP_FINAL);
         }
         break;
     case FLASHAPP_TEST_NEXT:
