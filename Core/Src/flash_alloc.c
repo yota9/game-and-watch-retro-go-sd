@@ -57,6 +57,18 @@ static inline const struct flash_entries *get_flash_entries(void)
                                     __SPI_FLASH_BASE__);
 }
 
+static void ram_alloc_init(void)
+{
+    ram_entries->magic = FLASH_MAGIC;
+    ram_entries->version = FLASH_VERSION;
+    ram_entries->num_entries = 1;
+    ram_entries->next_free_index = 0;
+
+    ram_entries->entry[0].block = 0;
+    ram_entries->entry[0].count = TOTAL_BLOCKS;
+    ram_entries->entry[0].tag = 0;
+}
+
 static void flash_alloc_init(void)
 {
     static bool flash_alloc_initialized = false;
@@ -75,17 +87,17 @@ static void flash_alloc_init(void)
     }
 
     printf("Flash allocator is not initialized, initializing\n");
-
-    ram_entries->magic = FLASH_MAGIC;
-    ram_entries->version = FLASH_VERSION;
-    ram_entries->num_entries = 1;
-    ram_entries->next_free_index = 0;
-
-    ram_entries->entry[0].block = 0;
-    ram_entries->entry[0].count = TOTAL_BLOCKS;
-    ram_entries->entry[0].tag = 0;
-
+    ram_alloc_init();
     flash_alloc_initialized = true;
+}
+
+static void store_flash_entries(void)
+{
+    wdog_refresh();
+    FlashCtx.DisableMemoryMappedMode();
+    FlashCtx.Erase(get_flash_entries_off(), ALIGN_BOUNDARY);
+    FlashCtx.Write(get_flash_entries_off(), ram_entries, sizeof(*ram_entries));
+    FlashCtx.EnableMemoryMappedMode();
 }
 
 static struct flash_entry *is_loaded(uint32_t blocks, uint32_t tag)
@@ -175,12 +187,7 @@ static struct flash_entry *allocate_flash(uint32_t blocks_needed, uint32_t tag) 
     entry->tag = tag;
 
     // Update flash with new entries
-    wdog_refresh();
-    FlashCtx.DisableMemoryMappedMode();
-    FlashCtx.Erase(get_flash_entries_off(), ALIGN_BOUNDARY);
-    FlashCtx.Write(get_flash_entries_off(), ram_entries, sizeof(struct flash_entries));
-    FlashCtx.EnableMemoryMappedMode();
-
+    store_flash_entries();
     return entry;
 }
 
@@ -192,6 +199,15 @@ static uint32_t get_tag(uint32_t sd_address, uint32_t size, uint8_t *ram_buffer)
     SdCtx.Read(sd_address, ram_buffer, len);
     crc = crc32_le(crc, ram_buffer, len);
     return crc;
+}
+
+void reset_flash_allocator(void)
+{
+    if (!FlashCtx.Presented)
+        return;
+
+    ram_alloc_init();
+    store_flash_entries();
 }
 
 uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,

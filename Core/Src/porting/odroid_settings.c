@@ -121,6 +121,10 @@ void odroid_settings_commit()
 
 void odroid_settings_reset()
 {
+#if SD_CARD != 0
+    reset_flash_allocator();
+#endif // SD_CARD
+
     memcpy(&persistent_config_ram, &persistent_config_default, sizeof(persistent_config_t));
 
     // odroid_settings_commit();
