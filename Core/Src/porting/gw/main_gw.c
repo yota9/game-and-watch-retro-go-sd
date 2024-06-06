@@ -3,6 +3,7 @@
 #include <assert.h>
 
 #include "main.h"
+#include "gw_flash.h"
 #include "gw_lcd.h"
 #include "gw_linker.h"
 #include "gw_buttons.h"
@@ -46,6 +47,8 @@ static bool gw_system_SaveState(char *pathName)
 static bool gw_system_LoadState(char *pathName)
 {
     printf("Loading state...\n");
+    get_flash_ctx()->Read((uint32_t)ACTIVE_FILE->save_address,
+                          state_save_buffer, sizeof(state_save_buffer));
     gw_state_load((unsigned char *) ACTIVE_FILE->save_address);
     printf("Loading state done!\n");
     return true;

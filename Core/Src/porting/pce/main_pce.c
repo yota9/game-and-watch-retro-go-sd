@@ -15,6 +15,7 @@
 #include <gfx.h>
 #include "main.h"
 #include "bilinear.h"
+#include "gw_flash.h"
 #include "gw_lcd.h"
 #include "gw_linker.h"
 #include "gw_buttons.h"
@@ -162,11 +163,11 @@ static bool SaveState(char *pathName) {
 }
 
 static bool LoadState(char *pathName) {
-#if SD_CARD != 0
-    assert(!"Load state not implemented");
-#endif
-    uint8_t *pce_save_buf = (uint8_t *)ACTIVE_FILE->save_address;
     if (ACTIVE_FILE->save_size==0) return true;
+    get_flash_ctx()->Read((uint32_t)ACTIVE_FILE->save_address,
+                          emulator_framebuffer_pce, sizeof(emulator_framebuffer_pce));
+
+    uint8_t *pce_save_buf = emulator_framebuffer_pce;
     sprintf(pce_log,"%ld",ACTIVE_FILE->save_size);
 
     pce_save_buf+=sizeof(SAVESTATE_HEADER) + 1;

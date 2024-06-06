@@ -3,6 +3,7 @@
 
 #include "main.h"
 #include "bilinear.h"
+#include "gw_flash.h"
 #include "gw_lcd.h"
 #include "gw_linker.h"
 #include "gw_buttons.h"
@@ -91,7 +92,9 @@ static bool SaveState(char *pathName)
 
 static bool LoadState(char *pathName)
 {
-    system_load_state((void *)ACTIVE_FILE->save_address);
+    get_flash_ctx()->Read((uint32_t)ACTIVE_FILE->save_address,
+                          glob_bp_lut, sizeof(glob_bp_lut));
+    system_load_state(glob_bp_lut);
     return true;
 }
 
