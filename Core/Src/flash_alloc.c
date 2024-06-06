@@ -210,14 +210,13 @@ void reset_flash_allocator(void)
     store_flash_entries();
 }
 
-uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,
-                          uint8_t *ram_buffer, uint32_t ram_buffer_size)
+uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size)
 {
     int64_t copy_left = size;
     struct flash_entry *entry;
     uint32_t flash_addr;
+    uint8_t ram_buffer[SD_BLOCK_LENGTH];
 
-    assert(ram_buffer_size >= SD_BLOCK_LENGTH && "RAM buffer is too small");
     flash_alloc_init();
 
     // Round up to the nearest block size

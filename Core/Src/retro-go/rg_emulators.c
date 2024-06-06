@@ -400,8 +400,7 @@ static void load_rom(retro_emulator_file_t *file, uint8_t *ram_buffer, uint32_t 
         SdCtx.Read(src, ram_buffer, rom_size);
         rom_address = ram_buffer;
     } else {
-        rom_address = (uint8_t *)copy_sd_to_flash(src, rom_size,
-                                                  ram_buffer, ram_length);
+        rom_address = (uint8_t *)copy_sd_to_flash(src, rom_size);
     }
 #endif //SD_CARD
 

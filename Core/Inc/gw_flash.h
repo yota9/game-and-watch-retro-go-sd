@@ -28,8 +28,7 @@ extern struct FlashCtx FlashCtx;
 extern struct FlashCtx SdCtx;
 
 void reset_flash_allocator(void);
-uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size,
-                          uint8_t *ram_buffer, uint32_t ram_buffer_size);
+uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size);
 #endif // SD_CARD
 
 __attribute__((always_inline))
