@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "bilinear.h"
+#include "gw_flash.h"
 #include "gw_lcd.h"
 #include "gw_linker.h"
 #include "gw_buttons.h"
@@ -388,7 +389,10 @@ static bool SaveState(char *pathName)
 
 static bool LoadState(char *pathName)
 {
-    gb_state_load(ACTIVE_FILE->save_address, ACTIVE_FILE->save_size);
+    get_flash_ctx()->Read((uint32_t)ACTIVE_FILE->save_address,
+                          GB_ROM_SRAM_CACHE, ACTIVE_FILE->save_size);
+    gb_state_load(GB_ROM_SRAM_CACHE, ACTIVE_FILE->save_size);
+    gb_loader_restore_cache();
     return true;
 }
 

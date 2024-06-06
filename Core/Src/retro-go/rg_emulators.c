@@ -421,7 +421,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #ifdef ENABLE_EMULATOR_GB
         load_overlay(&__RAM_EMU_START__, &_OVERLAY_GB_LOAD_START, (size_t)&_OVERLAY_GB_SIZE,
                      &_OVERLAY_GB_BSS_START, (size_t)&_OVERLAY_GB_BSS_SIZE);
-        load_rom(file, (unsigned char *)&_GB_ROM_UNPACK_BUFFER, (uint32_t)&_GB_ROM_UNPACK_BUFFER_SIZE);
+        load_rom(file, NULL, 0);
         app_main_gb(load_state, start_paused);
 #endif
     } else if(strcmp(emu->system_name, "Nintendo Entertainment System") == 0) {
