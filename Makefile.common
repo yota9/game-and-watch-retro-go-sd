@@ -55,9 +55,15 @@ ifneq ($(SD_CARD),0)
 SD_CARD_PARAM := --sd True
 # Not supporting compression for SD card
 COMPRESS := 0
+ifeq ($(shell echo $$(($(EXTFLASH_SIZE_MB) > 4096))),1)
+$(warning Curretly can't address > 4GB on SD card)
+EXTFLASH_SIZE_MB = 4096
+endif
+
 ifeq ($(SPI_FLASH_SIZE_MB),)
 $(error Set SPI_FLASH_SIZE_MB when using SD card)
 endif
+
 ifneq ($(shell echo $$(( $(EXTFLASH_OFFSET) % 512 ))),0)
 $(error When using EXTFLASH_OFFSET with SD card it must be muptiple of 512 bytes)
 endif
