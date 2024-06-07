@@ -1,6 +1,7 @@
 # Emulator collection for Nintendo® Game & Watch™
 
-This is a port of the [retro-go](https://github.com/ducalex/retro-go) emulator collection that runs on the Nintendo® Game & Watch™: Super Mario Bros. system.
+This is a port of the [retro-go](https://github.com/ducalex/retro-go) emulator collection that runs on the Nintendo® Game & Watch™
+and has **SD card support**.
 
 Supported emulators:
 
@@ -15,22 +16,96 @@ Supported emulators:
 
 ## Table of Contents
 - [Emulator collection for Nintendo® Game & Watch™](#emulator-collection-for-nintendo-game--watch)
-  - [Table of Contents](#table-of-contents)
-  - [Controls](#controls)
-    - [Macros](#macros)
-  - [Troubleshooting / FAQ](#troubleshooting--faq)
-  - [How to build](#how-to-build)
-    - [Prerequisites](#prerequisites)
-    - [Building](#building)
-    - [Information for developers](#information-for-developers)
-  - [Build and flash using Docker](#build-and-flash-using-docker)
-  - [Backing up and restoring save state files](#backing-up-and-restoring-save-state-files)
-  - [Screenshots](#screenshots)
-  - [Upgrading the flash](#upgrading-the-flash)
-  - [Advanced Flash Examples](#advanced-flash-examples)
-    - [Custom Firmware (CFW)](#custom-firmware-cfw)
-  - [Discord, support and discussion](#discord-support-and-discussion)
-  - [LICENSE](#license)
+    - [Table of Contents](#table-of-contents)
+    - [Sd card support](#sd-card-support)
+        - [Build process](#build-process)
+        - [Current status](#current-status)
+        - [Current limitations](#current-limitations)
+        - [Software information](#software-information)
+        - [Hardware information](#hardware-information)
+            - [Q&A for the hardware](#qa-for-the-hardware)
+    - [Controls](#controls)
+        - [Macros](#macros)
+    - [Troubleshooting / FAQ](#troubleshooting--faq)
+    - [How to build](#how-to-build)
+        - [Prerequisites](#prerequisites)
+        - [Building](#building)
+        - [Information for developers](#information-for-developers)
+    - [Build and flash using Docker](#build-and-flash-using-docker)
+    - [Backing up and restoring save state files](#backing-up-and-restoring-save-state-files)
+    - [Screenshots](#screenshots)
+    - [Upgrading the flash](#upgrading-the-flash)
+    - [Advanced Flash Examples](#advanced-flash-examples)
+        - [Custom Firmware (CFW)](#custom-firmware-cfw)
+    - [Discord, support and discussion](#discord-support-and-discussion)
+    - [LICENSE](#license)
+
+## Sd card support
+This repository contains early PoC code and PCB flex cable design to support SD card on the console. Only NES and GB games were currently tested! The single flash chip support is not broken too! PCB files and images could be found at [pcb directory](https://github.com/yota9/game-and-watch-retro-go-sd/tree/main/pcb).
+
+![zelda_sd_v1](https://github.com/yota9/game-and-watch-retro-go-sd/blob/main/pcb/zelda_sdv1.jpg)
+
+## Build process
+These makefile variables are currently in control for the SD card support:
+
+- `SD_CARD` - set to 1 to enable SD card support
+- `EXTFLASH_SIZE_MB` and other extflash-related varialbes are in control of the SD card from now on, 4GB is current limit
+- `SPI_FLASH_SIZE_MB` - set size of SPI flash chip if used
+
+### Current status
+- PCB V1 for **Zelda** version of Game and Watch was designed, manufactured and tested. It is fully functional, but V2 was designed with a few cosmetic changes to make it just a bit thinner and longer, but it is untested and V1 is fully working already, be aware of that.
+**The Mario version has different PCB layout so it is incompatible with these PCBs!**
+- SD card is used as in-place replacement for the external flash. The extflash binary is flashed to the SD card either through dd linux command or through SWD interface and flashapp that was used previously for flash chip, but **no FS support is implemented in this PoC.**
+- SD card supports both reading and writing. Although I'm testing it with 32GB card the software limitation is 4GB, since currently ROMs are linked in with the linker and device has 32-bit address space.
+- Flash chip is optional, but is is used as a memory-mmaped cache storage for the games that are larger then devices RAM. Simple allocator was written for the flash chip to load the games in round-robin fashion. Loading game in flash from SD takes some time, e.g. 770KB game takes around 11s to fully load. But the second load of the game (assuming it was not overwritten by other games you've played) is instant. The allocation information is stored in the last 4KB of the flash chip and preserved between reboots. The allocation is done by chunks (currently 126 chunks), the size of each chunk depends on the flash chip size, from 8kb for 1MB flash to 2MB for 256MB flash. Without flash chip only games that fit in the RAM could be loaded (e.g. about 500kb for NES games).
+
+### Current limitations
+- In order to fit the SD card slot in the device the 4 buttons supports (A/B/Start/Reset) should be removed from the back lid. The plastic is soft and easily removed with pliers and scalpel.
+- The list of ROMs is still located in MCU ROM, so you need to update firmware with SD flash.
+- Due to how the games were originally linked in the firmware, maximum 4GB of SD card could be utilized.
+- No support for ROM compression on SD card
+- No FS support is implemented, so SD card is currently used as in-place replacement for the external flash.
+
+These software limiations are due to how original port was made. The retro-go project was dissected peace-by-peace and I don't see enough reason to add "full support" to the current state of the project. For those who would like to do it I encourage to make new clean retro-go port, the SD card is already supported in the original project. I belive current state of the retro-go project would allow to make it with much less modifications than it was done originally. Also it seems that the retro-go project is constantly updated so probably many bugs and improvements were already made through these years.
+
+### Software information
+For SD card support 3 new source files were added to Core/Src directory:
+
+- `gw_sd.c` - SD card initialization and read/write functions
+- `softspi.c` - software SPI implementation for the SD card
+- `flash_alloc.c` - flash chip round-robin allocator
+
+### Hardware information
+BOM for the adapter:
+
+| Qty | Name                                                                  |
+|:----|:----------------------------------------------------------------------|
+| 1   | [Micro SD card slot](https://vi.aliexpress.com/item/32802051702.html) |
+| 1   | TXS0108ERGYR level shifter                                            |
+| 1   | SN74LVC1G04DCK single inverter gate                                   |
+| 6   | 0402 10k resistors                                                    |
+| 1   | 0402 100nF capacitor                                                  |
+| 1   | 0402 1uF capacitor                                                    |
+| 1   | Optional (but highly recommended) flash chip (used originally in G&W) |
+
+The flex PCB I've used is 0.11mm, 2 layers, no stiffeners (I've added double sided tape under SD card by my self).
+Order number location is already set under SD card slot if you would use JLCPCB service (click "Specify a location" option).
+
+#### Q&A for the hardware
+- Q: Is it hard to solder the flex cable?
+- A: The flex cable is quite easy to solder to the main board, the pads are quite big and located on the both sides of the PCB, you just need to heat them from the top through PCB. But soldering the components on the flex cable is quite tricky especially the level shifter, you have to be well experienced and the easiest way is to use heat table and soldering paste, although I recomened to order pre-assembled PCBs if you're not sure about your soldering skills.
+
+- Q: At what operation mode does flash chip works?
+- A: The flash chip works in quad mode, like it originally did.
+
+- Q: Why did you use level shifter?
+- A: The SD card operates at 3.3V, while the MCU operates at 1.8V. The level shifter is used to shift the voltage levels from 1.8V to 3.3V and vice versa.
+
+- Q: Why did you use the inverter gate?
+- A: The inverter gate is used to invert ChipSelect signal from the MCU to the SD card. This way single line could be used to select both the flash chip and the SD card.
+
+- Q: Why TXS0108 is used, not TXB0104?
+- A: This choice was made simply because my PoC was made with this chip I had in my storage. Although I'm pretty sure it would work fine with TXB0104 I didn't want to risk it and I've used the chip that I was sure would work.
 
 ## Controls
 
