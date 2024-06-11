@@ -6,6 +6,7 @@
 
 #include "lupng.h"
 #include "gui.h"
+#include "gw_flash.h"
 #include "gw_lcd.h"
 
 #define IMAGE_LOGO_WIDTH    (47)
@@ -242,8 +243,16 @@ void gui_redraw()
 
 void gui_draw_header(tab_t *tab)
 {
-    if (tab->img_header)
-        odroid_display_write(0, ODROID_SCREEN_HEIGHT - IMAGE_BANNER_HEIGHT - 15, IMAGE_BANNER_WIDTH, IMAGE_BANNER_HEIGHT, tab->img_header);
+    static const void *last_tab_header = NULL;
+    if (tab->img_header && last_tab_header != tab->img_header) {
+        void *buffer = lcd_get_active_buffer();
+        get_flash_ctx()->Read((uintptr_t)tab->img_header, buffer,
+                              IMAGE_BANNER_WIDTH * IMAGE_BANNER_HEIGHT * sizeof(uint16_t));
+        odroid_display_write(0, ODROID_SCREEN_HEIGHT - IMAGE_BANNER_HEIGHT - 15,
+                             IMAGE_BANNER_WIDTH, IMAGE_BANNER_HEIGHT, buffer);
+        last_tab_header = tab->img_header;
+        lcd_sync();
+    }
 
     odroid_overlay_draw_fill_rect(0, ODROID_SCREEN_HEIGHT - 15, ODROID_SCREEN_WIDTH, 1, C_GW_YELLOW);
     odroid_overlay_draw_fill_rect(0, ODROID_SCREEN_HEIGHT - 14, ODROID_SCREEN_WIDTH, 4, C_GW_MAIN_COLOR);

@@ -113,11 +113,6 @@ static void add_emulator(const char *system, const char *dirname, const char* ex
     p->initialized = false;
     p->crc_offset = crc_offset;
 
-#if SD_CARD != 0
-    // TODO loading header from SD card is currently unsupported
-    header = NULL;
-#endif // SD_CARD
-
     gui_add_tab(dirname, header, p, event_handler);
 
     emulator_init(p);
