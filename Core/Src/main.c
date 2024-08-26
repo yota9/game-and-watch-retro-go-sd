@@ -944,6 +944,13 @@ static void MX_OCTOSPI1_Init(void)
   hospi1.Init.DelayBlockBypass = HAL_OSPI_DELAY_BLOCK_BYPASSED;
   hospi1.Init.MaxTran = 0;
   hospi1.Init.Refresh = 0;
+
+#if EXTFLASH_FORCE_SRAM != 0
+  hospi1.Init.MemoryType = HAL_OSPI_MEMTYPE_APMEMORY;
+  hospi1.Init.FifoThreshold = 1;
+  hospi1.Init.ChipSelectBoundary = 10;
+#endif // EXTFLASH_FORCE_SRAM
+
   if (HAL_OSPI_Init(&hospi1) != HAL_OK)
   {
     Error_Handler();

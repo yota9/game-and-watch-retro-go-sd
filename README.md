@@ -41,7 +41,7 @@ Supported emulators:
     - [LICENSE](#license)
 
 ## Sd card support
-This repository contains early PoC code and PCB flex cable design to support SD card on the console. Only NES and GB games were currently tested! The single flash chip support is not broken too! PCB files and images could be found at [pcb directory](https://github.com/yota9/game-and-watch-retro-go-sd/tree/main/pcb).
+This repository contains early PoC code and PCB flex cable design to support SD card on the console. Only NES and GB games were currently tested! The single flash chip support is not broken too! PCB files and images could be found at [pcb directory](https://github.com/yota9/game-and-watch-retro-go-sd/tree/main/pcb). Also PSRAM chip support is added.
 
 ![zelda_sd_v1](https://github.com/yota9/game-and-watch-retro-go-sd/blob/main/pcb/zelda_sdv1.jpg)
 
@@ -51,6 +51,7 @@ These makefile variables are currently in control for the SD card support:
 - `SD_CARD` - set to 1 to enable SD card support
 - `EXTFLASH_SIZE_MB` and other extflash-related varialbes are in control of the SD card from now on, 4GB is current limit
 - `SPI_FLASH_SIZE_MB` - set size of SPI flash chip if used
+- `EXTFLASH_FORCE_SRAM` - set if PSRAM chip is used instead of flash chip
 
 ### Current status
 - PCB V1 for **Zelda** version of Game and Watch was designed, manufactured and tested. It is fully functional, but V2 was designed with a few cosmetic changes to make it just a bit thinner and longer, but it is untested and V1 is fully working already, be aware of that.
@@ -58,6 +59,7 @@ These makefile variables are currently in control for the SD card support:
 - SD card is used as in-place replacement for the external flash. The extflash binary is flashed to the SD card either through dd linux command or through SWD interface and flashapp that was used previously for flash chip, but **no FS support is implemented in this PoC.**
 - SD card supports both reading and writing. Although I'm testing it with 32GB card the software limitation is 4GB, since currently ROMs are linked in with the linker and device has 32-bit address space.
 - Flash chip is optional, but is is used as a memory-mmaped cache storage for the games that are larger then devices RAM. Simple allocator was written for the flash chip to load the games in round-robin fashion. Loading game in flash from SD takes some time, e.g. 770KB game takes around 11s to fully load. But the second load of the game (assuming it was not overwritten by other games you've played) is instant. The allocation information is stored in the last 4KB of the flash chip and preserved between reboots. The allocation is done by chunks (currently 126 chunks), the size of each chunk depends on the flash chip size, from 8kb for 1MB flash to 2MB for 256MB flash. Without flash chip only games that fit in the RAM could be loaded (e.g. about 500kb for NES games).
+- APS6404L-SQH PSRAM chip is tested instead of flash chip (currently tested only SPI mode). In SPI mode it is 2.5x times faster than OSPI flash.
 
 ### Current limitations
 - In order to fit the SD card slot in the device the 4 buttons supports (A/B/Start/Reset) should be removed from the back lid. The plastic is soft and easily removed with pliers and scalpel.

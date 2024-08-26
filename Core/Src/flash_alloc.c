@@ -9,12 +9,18 @@
 #include "gw_flash.h"
 #include "gw_linker.h"
 
+// Use the largest BLOCK size among:
+// 256 bytes - SPI flash page size
+// 512 bytes - SD card block size
+// 1024 bytes - SPI SRAM page size
+#define BLOCK_LENGTH 1024UL
+
+#if EXTFLASH_FORCE_SRAM == 0
+
 #define FLASH_MAGIC 0x46534C53UL
 #define FLASH_VERSION 1
 #define TOTAL_BLOCKS 126
-
 #define ALIGN_BOUNDARY 4096UL
-#define SD_BLOCK_LENGTH 512UL
 
 // Align the store block size to 4096 bytes
 #define STORE_BLOCK_SIZE (((__SPI_FLASH_SIZE__ - ALIGN_BOUNDARY) / \
@@ -83,6 +89,7 @@ static void flash_alloc_init(void)
     const struct flash_entries *flash = get_flash_entries();
     if (flash->magic == FLASH_MAGIC && flash->version == FLASH_VERSION) {
         memcpy(ram_entries, flash, sizeof(*ram_entries));
+        flash_alloc_initialized = true;
         return;
     }
 
@@ -193,7 +200,7 @@ static struct flash_entry *allocate_flash(uint32_t blocks_needed, uint32_t tag) 
 
 static uint32_t get_tag(uint32_t sd_address, uint32_t size, uint8_t *ram_buffer)
 {
-    const uint32_t len = size < SD_BLOCK_LENGTH ? size : SD_BLOCK_LENGTH;
+    const uint32_t len = size < BLOCK_LENGTH ? size : BLOCK_LENGTH;
     uint32_t crc = crc32_le(0, (uint8_t *)&sd_address, sizeof(sd_address));
     crc = crc32_le(crc, (uint8_t *)&size, sizeof(size));
     SdCtx.Read(sd_address, ram_buffer, len);
@@ -215,7 +222,7 @@ uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size)
     int64_t copy_left = size;
     struct flash_entry *entry;
     uint32_t flash_addr;
-    uint8_t ram_buffer[SD_BLOCK_LENGTH];
+    uint8_t ram_buffer[BLOCK_LENGTH];
 
     flash_alloc_init();
 
@@ -229,20 +236,48 @@ uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size)
     }
 
     entry = allocate_flash(blocks_needed, tag);
-    flash_addr = entry->block * STORE_BLOCK_SIZE;
 
+    flash_addr = entry->block * STORE_BLOCK_SIZE;
     FlashCtx.DisableMemoryMappedMode();
     while (copy_left > 0) {
         if (flash_addr % ALIGN_BOUNDARY == 0)
             FlashCtx.Erase(flash_addr, ALIGN_BOUNDARY);
 
-        SdCtx.Read(sd_address, ram_buffer, SD_BLOCK_LENGTH);
-        FlashCtx.Write(flash_addr, ram_buffer, SD_BLOCK_LENGTH);
-        sd_address += SD_BLOCK_LENGTH;
-        flash_addr += SD_BLOCK_LENGTH;
-        copy_left -= SD_BLOCK_LENGTH;
+        SdCtx.Read(sd_address, ram_buffer, BLOCK_LENGTH);
+        FlashCtx.Write(flash_addr, ram_buffer, BLOCK_LENGTH);
+        sd_address += BLOCK_LENGTH;
+        flash_addr += BLOCK_LENGTH;
+        copy_left -= BLOCK_LENGTH;
     }
 
     FlashCtx.EnableMemoryMappedMode();
     return (__SPI_FLASH_BASE__ + entry->block * STORE_BLOCK_SIZE);
 }
+
+#else
+
+void reset_flash_allocator(void)
+{
+    return;
+}
+
+uint32_t copy_sd_to_flash(uint32_t sd_address, uint32_t size)
+{
+    int64_t copy_left = size;
+    uint32_t flash_addr = 0;
+    uint8_t ram_buffer[BLOCK_LENGTH];
+
+    FlashCtx.DisableMemoryMappedMode();
+    while (copy_left > 0) {
+        SdCtx.Read(sd_address, ram_buffer, BLOCK_LENGTH);
+        FlashCtx.Write(flash_addr, ram_buffer, BLOCK_LENGTH);
+        sd_address += BLOCK_LENGTH;
+        flash_addr += BLOCK_LENGTH;
+        copy_left -= BLOCK_LENGTH;
+    }
+
+    FlashCtx.EnableMemoryMappedMode();
+    return __SPI_FLASH_BASE__;
+}
+
+#endif // !EXTFLASH_FORCE_SRAM

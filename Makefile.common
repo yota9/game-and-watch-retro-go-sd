@@ -78,6 +78,7 @@ EXTFLASH_SIZE ?= $(shell echo "$$(( $(EXTFLASH_SIZE_MB) * 1024 * 1024 ))")
 SPI_FLASH_SIZE ?= $(shell echo "$$(( $(SPI_FLASH_SIZE_MB) * 1024 * 1024 ))")
 
 EXTFLASH_FORCE_SPI ?= 0
+EXTFLASH_FORCE_SRAM ?= 0
 
 # Set to 0 to remove state saving support (uses less space)
 STATE_SAVING ?= 1
@@ -291,6 +292,7 @@ AS_DEFS +=
 C_DEFS +=  \
 -DINTFLASH_BANK=$(INTFLASH_BANK) \
 -DEXTFLASH_FORCE_SPI=$(EXTFLASH_FORCE_SPI) \
+-DEXTFLASH_FORCE_SRAM=$(EXTFLASH_FORCE_SRAM) \
 -DUSE_HAL_DRIVER \
 -DSTM32H7B0xx \
 -DIS_LITTLE_ENDIAN \
@@ -663,6 +665,7 @@ help:
 	@echo ""
 	@echo "Configuration variables:"
 	@echo "  EXTFLASH_FORCE_SPI  - Forces the use of legacy SPI mode for the external flash driver"
+	@echo "  EXTFLASH_FORCE_SRAM - Forces the use of SPI SRAM"
 	@echo "  EXTFLASH_SIZE_MB    - Sets the external flash size in megabytes"
 	@echo "  EXTFLASH_SIZE       - Sets the external flash size in bytes (has precedence over EXTFLASH_SIZE_MB)"
 	@echo "  LARGE_FLASH         - Sets the external flash size to 16MB  (deprecated)"
@@ -678,6 +681,7 @@ help:
 	@echo ""
 	@echo "Current configuration:"
 	@echo "  EXTFLASH_FORCE_SPI=$(EXTFLASH_FORCE_SPI)"
+	@echo "  EXTFLASH_FORCE_SRAM=$(EXTFLASH_FORCE_SRAM)"
 	@echo "  EXTFLASH_SIZE_MB=$(EXTFLASH_SIZE_MB)"
 	@echo "  EXTFLASH_SIZE=$(EXTFLASH_SIZE)"
 	@echo "  LARGE_FLASH=$(LARGE_FLASH)"

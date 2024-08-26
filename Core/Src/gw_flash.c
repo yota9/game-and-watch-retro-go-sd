@@ -14,7 +14,7 @@
 
 // Convenience macro to access the struct for a command
 // in the active flash configuration.
-#define CMD(cmd_name) &flash.config->commands[CMD_##cmd_name]
+#define CMD(cmd_name) (&flash.config->commands[CMD_##cmd_name])
 
 #define TMO_DEFAULT 1000
 
@@ -36,10 +36,25 @@
     .dummy       = (_dummy)                                                       \
 }
 
+// Initialize CMD for non-supported commands (instr_lines = 0)
+#define CMD_NO_DEF    \
+{                     \
+    .cmd         = 0, \
+    .instr_lines = 0, \
+    .addr_lines  = 0, \
+    .addr_size   = 0, \
+    .data_lines  = 0, \
+    .dummy       = 0  \
+}
+
+// Check if CMD is supported
+#define CMD_SUPPORTED(cmd_name) (CMD(cmd_name)->instr_lines != LINES_0)
+
 // Convenience macro to initialize a flash_config_t struct
-#define FLASH_CONFIG_DEF(_commands, _erase1_size, _erase2_size, _erase3_size, _erase4_size, _set_quad, _init_fn) \
+#define FLASH_CONFIG_DEF(_commands, _page_size, _erase1_size, _erase2_size, _erase3_size, _erase4_size, _set_quad, _init_fn) \
 {                                                                                                                \
     .commands    = (_commands),                                                                                  \
+    .page_size   = (_page_size),                                                                                 \
     .erase_sizes = { (_erase1_size), (_erase2_size), (_erase3_size), (_erase4_size) },                           \
     .set_quad    = (_set_quad),                                                                                  \
     .init_fn     = (_init_fn),                                                                                   \
@@ -130,6 +145,7 @@ enum {
     CMD_RDAR,       // Read Any Register
     CMD_WREN,       // Write Enable
     CMD_RDID,       // Read Identification
+    CMD_APMEM_RDID, // Read Identification for APMEM SRAM
     CMD_RSTEN,      // Reset Enable
     CMD_RST,        // Reset
 
@@ -141,6 +157,8 @@ enum {
 
     CMD_PP,         // Page Program
     CMD_READ,       // Read Data Bytes
+
+    CMD_APMEM_QUAD,  // APMEM SRAM Quad Mode
 
     CMD_COUNT,
 };
@@ -158,6 +176,7 @@ typedef struct {
 
 typedef struct {
     const flash_cmd_t *commands;
+    uint16_t           page_size;
     uint32_t           erase_sizes[4];  // [0] = ERASE1, ... [3] = ERASE4
     bool               set_quad;        // If quad mode should be enabled
     init_fn_t          init_fn;         // Chip/vendor specific init function
@@ -165,7 +184,7 @@ typedef struct {
 
 typedef union {
     uint32_t u32;
-    uint8_t  u8[4];
+    uint8_t  u8[8];
 } jedec_id_t;
 
 typedef struct {
@@ -208,6 +227,48 @@ const flash_cmd_t cmds_quad_24b_mx[CMD_COUNT] = {
     [CMD_ERASE4] = { },
     [CMD_PP]     = CMD_DEF(0x38, LINES_1, LINES_4, ADDR_SIZE_24B, LINES_4,    0), // 4PP
     [CMD_READ]   = CMD_DEF(0xEB, LINES_1, LINES_4, ADDR_SIZE_24B, LINES_4,    6), // 4READ dummy=6
+};
+
+const flash_cmd_t cmds_apmem_24b[CMD_COUNT] = {
+    // cmd                     cmd  i_lines  a_lines         a_size  d_lines  dummy
+    [CMD_APMEM_RDID] = CMD_DEF(0x9F, LINES_1, LINES_1, ADDR_SIZE_24B, LINES_1,    0),
+    [CMD_RSTEN]      = CMD_DEF(0x66, LINES_1, LINES_0, ADDR_SIZE_24B, LINES_0,    0),
+    [CMD_RST]        = CMD_DEF(0x99, LINES_1, LINES_0, ADDR_SIZE_24B, LINES_0,    0),
+    [CMD_PP]         = CMD_DEF(0x02, LINES_1, LINES_1, ADDR_SIZE_24B, LINES_1,    0), // PP
+    [CMD_READ]       = CMD_DEF(0x0B, LINES_1, LINES_1, ADDR_SIZE_24B, LINES_1,    8), // FAST_READ dummy=8
+    // Other CMDs are not supported
+    [CMD_APMEM_QUAD] = CMD_NO_DEF,
+    [CMD_RDID]       = CMD_NO_DEF,
+    [CMD_WRSR]       = CMD_NO_DEF,
+    [CMD_RDSR]       = CMD_NO_DEF,
+    [CMD_RDCR]       = CMD_NO_DEF,
+    [CMD_WREN]       = CMD_NO_DEF,
+    [CMD_CE]         = CMD_NO_DEF,
+    [CMD_ERASE1]     = CMD_NO_DEF,
+    [CMD_ERASE2]     = CMD_NO_DEF,
+    [CMD_ERASE3]     = CMD_NO_DEF,
+    [CMD_ERASE4]     = CMD_NO_DEF,
+};
+
+const flash_cmd_t cmds_quad_apmem_24b[CMD_COUNT] = {
+    // cmd                     cmd  i_lines  a_lines         a_size  d_lines  dummy
+    [CMD_APMEM_RDID] = CMD_DEF(0x9F, LINES_1, LINES_1, ADDR_SIZE_24B, LINES_1,    0),
+    [CMD_RSTEN]      = CMD_DEF(0x66, LINES_1, LINES_0, ADDR_SIZE_24B, LINES_0,    0),
+    [CMD_RST]        = CMD_DEF(0x99, LINES_1, LINES_0, ADDR_SIZE_24B, LINES_0,    0),
+    [CMD_PP]         = CMD_DEF(0x38, LINES_1, LINES_4, ADDR_SIZE_24B, LINES_4,    0), // 4PP
+    [CMD_READ]       = CMD_DEF(0xEB, LINES_1, LINES_4, ADDR_SIZE_24B, LINES_4,    6), // 4READ dummy=6
+    [CMD_APMEM_QUAD] = CMD_DEF(0x35, LINES_1, LINES_0, ADDR_SIZE_24B, LINES_0,    0),
+    // Other CMDs are not supported
+    [CMD_RDID]       = CMD_NO_DEF,
+    [CMD_WRSR]       = CMD_NO_DEF,
+    [CMD_RDSR]       = CMD_NO_DEF,
+    [CMD_RDCR]       = CMD_NO_DEF,
+    [CMD_WREN]       = CMD_NO_DEF,
+    [CMD_CE]         = CMD_NO_DEF,
+    [CMD_ERASE1]     = CMD_NO_DEF,
+    [CMD_ERASE2]     = CMD_NO_DEF,
+    [CMD_ERASE3]     = CMD_NO_DEF,
+    [CMD_ERASE4]     = CMD_NO_DEF,
 };
 
 const flash_cmd_t cmds_quad_32b_mx[CMD_COUNT] = {
@@ -319,21 +380,24 @@ const flash_cmd_t cmds_quad_32b_wb[CMD_COUNT] = {
     [CMD_READ]   = CMD_DEF(0xEC, LINES_1, LINES_4, ADDR_SIZE_32B, LINES_4,    6), // Fast Read Quad I/O with 4-Byte Address
 };
 
+static void init_apmem(void);
 static void init_spansion(void);
 static void init_mx_issi(void);
 static void init_winbond(void);
 
-const flash_config_t config_spi_24b       = FLASH_CONFIG_DEF(cmds_spi_24b,       0x01000,  0x8000, 0x10000, 0,  false, NULL);
-const flash_config_t config_quad_24b_mx   = FLASH_CONFIG_DEF(cmds_quad_24b_mx,   0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
-const flash_config_t config_quad_32b_mx   = FLASH_CONFIG_DEF(cmds_quad_32b_mx,   0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
-const flash_config_t config_quad_32b_mx54 = FLASH_CONFIG_DEF(cmds_quad_32b_mx54, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
-const flash_config_t config_quad_32b_s    = FLASH_CONFIG_DEF(cmds_quad_32b_s,    0x40000,       0,       0, 0,   true, init_spansion);
-const flash_config_t config_quad_24b_issi = FLASH_CONFIG_DEF(cmds_quad_24b_issi, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
-const flash_config_t config_quad_24b_wb   = FLASH_CONFIG_DEF(cmds_quad_24b_wb,   0x01000,  0x8000, 0x10000, 0,   true, init_winbond);
-const flash_config_t config_quad_32b_wb   = FLASH_CONFIG_DEF(cmds_quad_32b_wb,   0x01000, 0x10000,       0, 0,   true, init_winbond);
+const flash_config_t config_spi_24b        = FLASH_CONFIG_DEF(cmds_spi_24b,       256, 0x01000,  0x8000, 0x10000, 0,  false, NULL);
+const flash_config_t config_quad_24b_mx    = FLASH_CONFIG_DEF(cmds_quad_24b_mx,   256, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
+const flash_config_t config_quad_32b_mx    = FLASH_CONFIG_DEF(cmds_quad_32b_mx,   256, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
+const flash_config_t config_quad_32b_mx54  = FLASH_CONFIG_DEF(cmds_quad_32b_mx54, 256, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
+const flash_config_t config_quad_32b_s     = FLASH_CONFIG_DEF(cmds_quad_32b_s,    256, 0x40000,       0,       0, 0,   true, init_spansion);
+const flash_config_t config_quad_24b_issi  = FLASH_CONFIG_DEF(cmds_quad_24b_issi, 256, 0x01000,  0x8000, 0x10000, 0,   true, init_mx_issi);
+const flash_config_t config_quad_24b_wb    = FLASH_CONFIG_DEF(cmds_quad_24b_wb,   256, 0x01000,  0x8000, 0x10000, 0,   true, init_winbond);
+const flash_config_t config_quad_32b_wb    = FLASH_CONFIG_DEF(cmds_quad_32b_wb,   256, 0x01000, 0x10000,       0, 0,   true, init_winbond);
+const flash_config_t config_apmem_24b      = FLASH_CONFIG_DEF(cmds_apmem_24b,      1024, 0, 0, 0, 0,   false, init_apmem);
+const flash_config_t config_quad_apmem_24b = FLASH_CONFIG_DEF(cmds_quad_apmem_24b, 1024, 0, 0, 0, 0,   true,  init_apmem);
 
 const jedec_config_t jedec_map[] = {
-#if (EXTFLASH_FORCE_SPI == 0)
+#if (EXTFLASH_FORCE_SPI == 0 && EXTFLASH_FORCE_SRAM == 0)
     // MX 24 bit address
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x34, "MX25U8035F",  &config_quad_24b_mx),   // Stock 1MB (Mario)
     JEDEC_CONFIG_DEF(0xC2, 0x25, 0x36, "MX25U3232F",  &config_quad_24b_mx),   // Stock 4MB (Zelda)
@@ -376,8 +440,17 @@ static struct {
     const char           *name;
     bool                  mem_mapped_enabled;
 } flash = {
+#if (EXTFLASH_FORCE_SRAM == 0)
     .config = &config_spi_24b, // Default config to use to probe status etc.
     .name = "Unknown",
+#else
+#  if (EXTFLASH_FORCE_SPI != 0)
+    .config = &config_apmem_24b,
+#  else
+    .config = &config_quad_apmem_24b,
+#  endif // EXTFLASH_FORCE_SPI
+    .name = "APMEM SRAM",
+#endif // !EXTFLASH_FORCE_SRAM
 };
 
 static void set_ospi_cmd(OSPI_RegularCmdTypeDef *ospi_cmd,
@@ -418,6 +491,8 @@ static void OSPI_ReadBytes(const flash_cmd_t *cmd,
     OSPI_RegularCmdTypeDef ospi_cmd;
 
     // DBG("RB %d 0x%08x 0x%08X %d\n", cmd->cmd, address, data, len);
+    if (cmd->instr_lines == LINES_0)
+        return;
 
     assert(flash.mem_mapped_enabled == false);
 
@@ -448,6 +523,9 @@ static void OSPI_WriteBytes(const flash_cmd_t *cmd,
     OSPI_RegularCmdTypeDef ospi_cmd;
 
     // DBG("WB %d 0x%08x 0x%08X %d\n", cmd->cmd, address, data, len);
+
+    if (cmd->instr_lines == LINES_0)
+        return;
 
     assert(flash.mem_mapped_enabled == false);
 
@@ -542,6 +620,9 @@ static void OSPI_DisableMemoryMappedMode(void)
 
 static void _OSPI_Erase(const flash_cmd_t *cmd, uint32_t address)
 {
+    if (cmd->instr_lines == LINES_0)
+        return;
+
     OSPI_WriteBytes(cmd, address, NULL, 0);
 
     // Wait for Write In Progress Bit to become zero
@@ -550,6 +631,9 @@ static void _OSPI_Erase(const flash_cmd_t *cmd, uint32_t address)
 
 static void OSPI_NOR_WriteEnable(void)
 {
+    if (CMD_SUPPORTED(WREN) == false)
+        return;
+
     OSPI_WriteBytes(CMD(WREN), 0, NULL, 0);
 
     // Wait for Write Enable Latch to be set
@@ -559,6 +643,9 @@ static void OSPI_NOR_WriteEnable(void)
 static void OSPI_ChipErase(void)
 {
     DBG("CE\n");
+    if (CMD_SUPPORTED(CE) == false)
+        return;
+
     OSPI_NOR_WriteEnable();
     _OSPI_Erase(CMD(CE), 0); // Chip Erase
 }
@@ -572,6 +659,9 @@ static bool OSPI_Erase(uint32_t *address, uint32_t *size)
 
     assert(address != NULL);
     assert(size != NULL);
+
+    if (CMD_SUPPORTED(ERASE1) == false)
+        return true;
 
     uint32_t req_address = *address;
     uint32_t req_size = *size;
@@ -628,13 +718,16 @@ static void OSPI_PageProgram(uint32_t address,
                       const uint8_t *buffer,
                       size_t buffer_size)
 {
-    assert(buffer_size <= 256);
+    assert(buffer_size <= flash.config->page_size);
 
     DBG("PP cmd=%02X addr=0x%lx buf=%p len=%d\n", (*CMD(PP)).cmd, address, buffer, buffer_size);
 
     OSPI_WriteBytes(CMD(PP), address, buffer, buffer_size);
 
     // Wait for Write In Progress Bit to become zero
+    if (CMD_SUPPORTED(RDSR) == false)
+        return;
+
     wait_for_status(STATUS_WIP_Msk, 0, TMO_DEFAULT);
 }
 
@@ -642,24 +735,31 @@ static void OSPI_Program(uint32_t address,
                   const void *pbuffer,
                   size_t buffer_size)
 {
+    const uint32_t page_size = flash.config->page_size;
     const uint8_t *buffer = (uint8_t *)pbuffer;
-    unsigned iterations = (buffer_size + 255) / 256;
-    unsigned dest_page = address / 256;
+    unsigned iterations = (buffer_size + (page_size - 1)) / page_size;
+    unsigned dest_page = address / page_size;
 
     assert((address & 0xff) == 0);
 
     for (int i = 0; i < iterations; i++) {
         OSPI_NOR_WriteEnable();
-        OSPI_PageProgram((i + dest_page) * 256,
-                         buffer + (i * 256),
-                         buffer_size > 256 ? 256 : buffer_size);
-        buffer_size -= 256;
+        OSPI_PageProgram((i + dest_page) * page_size,
+                         buffer + (i * page_size),
+                         buffer_size > page_size ? page_size : buffer_size);
+        buffer_size -= page_size;
     }
 }
 
 static void OSPI_ReadJedecId(uint8_t dest[3])
 {
-    OSPI_ReadBytes(CMD(RDID), 0, dest, 3);
+    uint8_t id[8];
+    if (CMD_SUPPORTED(RDID)) {
+        OSPI_ReadBytes(CMD(RDID), 0, dest, 3);
+    } else if (CMD_SUPPORTED(APMEM_RDID)) {
+        OSPI_ReadBytes(CMD(APMEM_RDID), 0, id, sizeof(id));
+        memcpy(dest, id, 3);
+    }
 }
 
 static void OSPI_ReadSR(uint8_t dest[1])
@@ -670,6 +770,13 @@ static void OSPI_ReadSR(uint8_t dest[1])
 static void OSPI_ReadCR(uint8_t dest[1])
 {
     OSPI_ReadBytes(CMD(RDCR), 0, dest, 1);
+}
+
+static void init_apmem(void)
+{
+    DBG("%s\n", __FUNCTION__);
+    if (flash.config->set_quad)
+        OSPI_WriteBytes(CMD(APMEM_QUAD), 0, NULL, 0);
 }
 
 static void init_mx_issi(void)
@@ -837,24 +944,33 @@ static void OSPI_Init(OSPI_HandleTypeDef *hospi)
     HAL_Delay(20);
 
     // Read ID
-    OSPI_ReadBytes(CMD(RDID), 0, &flash.jedec_id.u8[0], 3);
-    DBG("JEDEC_ID: %02X %02X %02X\n", flash.jedec_id.u8[0], flash.jedec_id.u8[1], flash.jedec_id.u8[2]);
+    if (CMD_SUPPORTED(RDID)) {
+        OSPI_ReadBytes(CMD(RDID), 0, &flash.jedec_id.u8[0], 3);
+        DBG("JEDEC_ID: %02X %02X %02X\n", flash.jedec_id.u8[0], flash.jedec_id.u8[1], flash.jedec_id.u8[2]);
+    } else if (CMD_SUPPORTED(APMEM_RDID)) {
+        OSPI_ReadBytes(CMD(APMEM_RDID), 0, &flash.jedec_id.u8[0], sizeof(flash.jedec_id.u8));
+        DBG("JEDEC_ID: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+            flash.jedec_id.u8[0], flash.jedec_id.u8[1], flash.jedec_id.u8[2], flash.jedec_id.u8[3],
+            flash.jedec_id.u8[4], flash.jedec_id.u8[5], flash.jedec_id.u8[6], flash.jedec_id.u8[7]);
+    }
 
     // Check for known bad IDs
     if (((flash.jedec_id.u32 & 0xffffff) == 0xffffff) ||
         ((flash.jedec_id.u32 & 0xffffff) == 0x000000)) {
 #if SD_CARD == 0
-        printf("Can't communicate with the external flash! Please check the soldering.");
+        printf("Can't communicate with the external flash/sram! Please check the soldering.");
         abort();
 #else
         FlashCtx.Presented = false;
-        printf("SPI Flash not found! Skipping\n");
+        printf("SPI flash/sram not found! Skipping\n");
         return;
 #endif // !SD_CARD
     }
 
-    OSPI_ReadBytes(CMD(RDSR), 0, &status, 1);
-    DBG("Status: %02X\n", status);
+    if (CMD_SUPPORTED(RDSR)) {
+        OSPI_ReadBytes(CMD(RDSR), 0, &status, 1);
+        DBG("Status: %02X\n", status);
+    }
 
     for (int i = 0; i < ARRAY_SIZE(jedec_map); i++) {
         if ((flash.jedec_id.u32 & 0xffffff) == (jedec_map[i].jedec_id.u32 & 0xffffff)) {
