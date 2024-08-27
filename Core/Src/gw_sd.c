@@ -133,6 +133,7 @@ struct response {
 // =============================================================================
 
 #define SD_GO_IDLE_STATE_CMD 0
+#define SD_SEND_OP_COND_CMD 1
 #define SD_SEND_INTERFACE_COND_CMD 8
 #define SD_READ_SINGLE_BLOCK_CMD 17
 #define SD_WRITE_SINGLE_BLOCK_CMD 24
@@ -142,6 +143,7 @@ struct response {
 
 enum cmd_list {
     GO_IDLE_STATE = 0,
+    SEND_OP_COND,
     SEND_INTERFACE_COND,
     READ_SINGLE_BLOCK,
     WRITE_SINGLE_BLOCK,
@@ -156,6 +158,7 @@ static struct sd_cmd {
     response_fn response;
 } sd_cmds[] = {
     [GO_IDLE_STATE] = { SD_GO_IDLE_STATE_CMD, 0x95, responseR1 },
+    [SEND_OP_COND] = { SD_SEND_OP_COND_CMD, 0x0, responseR1 },
     [SEND_INTERFACE_COND] = { SD_SEND_INTERFACE_COND_CMD, 0x86, responseCMD8 },
     [READ_SINGLE_BLOCK] = { SD_READ_SINGLE_BLOCK_CMD, 0x0, responseR1 },
     [WRITE_SINGLE_BLOCK] = { SD_WRITE_SINGLE_BLOCK_CMD, 0x0, responseR1 },
@@ -182,6 +185,7 @@ static void ReadId(uint8_t dest[3]) {
 
 static void __send_cmd_payload(uint8_t cmd, uint32_t arg, uint32_t crc) {
     uint8_t spi_cmd_payload[6] = {cmd | 0x40, arg >> 24, arg >> 16, arg >> 8, arg, crc | 0x1};
+    SoftSpi_WriteDummyRead(sd.spi, NULL, 2);
     SoftSpi_WriteRead(sd.spi, spi_cmd_payload, NULL, sizeof(spi_cmd_payload));
     wdog_refresh();
 }
@@ -383,14 +387,20 @@ static void Init(OSPI_HandleTypeDef *hospi) {
     send_cmd(READ_OCR, 0);
 
     for (i = 0; i < 255; i++) {
-        response = send_cmd(APP_CMD, 0);
-        if (response.r0 && response.r0 != (1 << R1_IDLE))
-            continue;
+        if (sd.isSdV2) {
+            response = send_cmd(APP_CMD, 0);
+            if (response.r0 && response.r0 != (1 << R1_IDLE))
+                continue;
 
-        // High capacity card support
-        response = send_cmd(SEND_OP_COND_ACMD, 0x40000000);
-        if (!response.r0)
-            break;
+            // High capacity card support
+            response = send_cmd(SEND_OP_COND_ACMD, 0x40000000);
+            if (!response.r0)
+                break;
+        } else {
+            response = send_cmd(SEND_OP_COND, 0);
+            if (!response.r0)
+                break;
+        }
     }
 
     if (i == 255) {
