@@ -54,7 +54,7 @@ These makefile variables are currently in control for the SD card support:
 - `EXTFLASH_FORCE_SRAM` - set if PSRAM chip is used instead of flash chip
 
 ### Current status
-- PCB V1 for **Zelda** version of Game and Watch was designed, manufactured and tested. It is fully functional, but V2 was designed with a few cosmetic changes to make it just a bit thinner and longer, but it is untested and V1 is fully working already, be aware of that.
+- PCB V1 for **Zelda** version of Game and Watch was designed, manufactured and tested. It is fully functional, although a bit shorter and wider then should be.
 **The Mario version has different PCB layout so it is incompatible with these PCBs!**
 - SD card is used as in-place replacement for the external flash. The extflash binary is flashed to the SD card either through dd linux command or through SWD interface and flashapp that was used previously for flash chip, but **no FS support is implemented in this PoC.**
 - SD card supports both reading and writing. Although I'm testing it with 32GB card the software limitation is 4GB, since currently ROMs are linked in with the linker and device has 32-bit address space.
